@@ -18,12 +18,15 @@ namespace PlayerBlock
         [SerializeField] private Text selectedShadowLabel;
         [SerializeField] private Image meleeShadowSlot;
         [SerializeField] private Image rangedShadowSlot;
+        [SerializeField] private Image shieldShadowSlot;
         [SerializeField] private Image emptyHandsSlot;
         [SerializeField] private Text meleeShadowSlotLabel;
         [SerializeField] private Text rangedShadowSlotLabel;
+        [SerializeField] private Text shieldShadowSlotLabel;
         [SerializeField] private Text emptyHandsSlotLabel;
         [SerializeField] private Text meleeShadowCostLabel;
         [SerializeField] private Text rangedShadowCostLabel;
+        [SerializeField] private Text shieldShadowCostLabel;
         [SerializeField] private Text emptyHandsCostLabel;
         [SerializeField] private Image crosshairCooldownFill;
         [SerializeField] private Image[] phaseSegments;
@@ -119,7 +122,7 @@ namespace PlayerBlock
             }
         }
 
-        public void SetSelectedShadowInventory(CombatSelectionKind selectedKind, float meleeCost, float rangedCost)
+        public void SetSelectedShadowInventory(CombatSelectionKind selectedKind, float meleeCost, float rangedCost, float shieldCost)
         {
             EnsureUi();
             if (selectedShadowLabel != null)
@@ -129,6 +132,7 @@ namespace PlayerBlock
 
             SetShadowSlotVisual(meleeShadowSlot, selectedKind == CombatSelectionKind.Melee);
             SetShadowSlotVisual(rangedShadowSlot, selectedKind == CombatSelectionKind.Ranged);
+            SetShadowSlotVisual(shieldShadowSlot, selectedKind == CombatSelectionKind.Shield);
             SetShadowSlotVisual(emptyHandsSlot, selectedKind == CombatSelectionKind.Hands);
 
             if (meleeShadowSlotLabel != null)
@@ -141,9 +145,14 @@ namespace PlayerBlock
                 rangedShadowSlotLabel.text = "2\nRANGED";
             }
 
+            if (shieldShadowSlotLabel != null)
+            {
+                shieldShadowSlotLabel.text = "3\nSHIELD";
+            }
+
             if (emptyHandsSlotLabel != null)
             {
-                emptyHandsSlotLabel.text = "3\nEMPTY";
+                emptyHandsSlotLabel.text = "4\nEMPTY";
             }
 
             if (meleeShadowCostLabel != null)
@@ -154,6 +163,11 @@ namespace PlayerBlock
             if (rangedShadowCostLabel != null)
             {
                 rangedShadowCostLabel.text = $"{rangedCost:0.#} ENERGY";
+            }
+
+            if (shieldShadowCostLabel != null)
+            {
+                shieldShadowCostLabel.text = $"{shieldCost:0.#} ENERGY";
             }
 
             if (emptyHandsCostLabel != null)
@@ -194,6 +208,7 @@ namespace PlayerBlock
                 && selectedShadowLabel != null
                 && meleeShadowSlot != null
                 && rangedShadowSlot != null
+                && shieldShadowSlot != null
                 && emptyHandsSlot != null)
             {
                 HideLegacyCrosshairCooldownPanel();
@@ -239,7 +254,7 @@ namespace PlayerBlock
                 BuildBossPanel(transform);
             }
 
-            if (selectedShadowLabel == null || meleeShadowSlot == null || rangedShadowSlot == null || emptyHandsSlot == null)
+            if (selectedShadowLabel == null || meleeShadowSlot == null || rangedShadowSlot == null || shieldShadowSlot == null || emptyHandsSlot == null)
             {
                 BuildShadowSelectionPanel(transform);
             }
@@ -390,7 +405,7 @@ namespace PlayerBlock
             rect.anchorMax = new Vector2(0.5f, 0f);
             rect.pivot = new Vector2(0.5f, 0f);
             rect.anchoredPosition = new Vector2(0f, 42f);
-            rect.sizeDelta = new Vector2(520f, 142f);
+            rect.sizeDelta = new Vector2(700f, 142f);
 
             if (selectedShadowLabel == null)
             {
@@ -401,29 +416,53 @@ namespace PlayerBlock
             }
 
             SetRect(selectedShadowLabel.rectTransform, new Vector2(0f, 112f), new Vector2(320f, 24f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f));
-            BuildShadowSlot(panel.transform, CombatSelectionKind.Melee, new Vector2(-162f, 54f));
-            BuildShadowSlot(panel.transform, CombatSelectionKind.Ranged, new Vector2(0f, 54f));
-            BuildShadowSlot(panel.transform, CombatSelectionKind.Hands, new Vector2(162f, 54f));
-            SetSelectedShadowInventory(CombatSelectionKind.Melee, 1f, 2f);
+            BuildShadowSlot(panel.transform, CombatSelectionKind.Melee, new Vector2(-246f, 54f));
+            BuildShadowSlot(panel.transform, CombatSelectionKind.Ranged, new Vector2(-82f, 54f));
+            BuildShadowSlot(panel.transform, CombatSelectionKind.Shield, new Vector2(82f, 54f));
+            BuildShadowSlot(panel.transform, CombatSelectionKind.Hands, new Vector2(246f, 54f));
+            SetSelectedShadowInventory(CombatSelectionKind.Melee, 1f, 2f, 2f);
         }
 
         private void BuildShadowSlot(Transform parent, CombatSelectionKind kind, Vector2 position)
         {
-            var slotName = kind == CombatSelectionKind.Melee
-                ? "MeleeShadowSlot"
-                : kind == CombatSelectionKind.Ranged
-                    ? "RangedShadowSlot"
-                    : "EmptyHandsSlot";
-            var labelName = kind == CombatSelectionKind.Melee
-                ? "MeleeShadowSlotLabel"
-                : kind == CombatSelectionKind.Ranged
-                    ? "RangedShadowSlotLabel"
-                    : "EmptyHandsSlotLabel";
-            var costName = kind == CombatSelectionKind.Melee
-                ? "MeleeShadowCostLabel"
-                : kind == CombatSelectionKind.Ranged
-                    ? "RangedShadowCostLabel"
-                    : "EmptyHandsCostLabel";
+            string slotName;
+            string labelName;
+            string costName;
+            string slotText;
+            string costText;
+
+            switch (kind)
+            {
+                case CombatSelectionKind.Melee:
+                    slotName = "MeleeShadowSlot";
+                    labelName = "MeleeShadowSlotLabel";
+                    costName = "MeleeShadowCostLabel";
+                    slotText = "1\nMELEE";
+                    costText = "1 ENERGY";
+                    break;
+                case CombatSelectionKind.Ranged:
+                    slotName = "RangedShadowSlot";
+                    labelName = "RangedShadowSlotLabel";
+                    costName = "RangedShadowCostLabel";
+                    slotText = "2\nRANGED";
+                    costText = "2 ENERGY";
+                    break;
+                case CombatSelectionKind.Shield:
+                    slotName = "ShieldShadowSlot";
+                    labelName = "ShieldShadowSlotLabel";
+                    costName = "ShieldShadowCostLabel";
+                    slotText = "3\nSHIELD";
+                    costText = "2 ENERGY";
+                    break;
+                default:
+                    slotName = "EmptyHandsSlot";
+                    labelName = "EmptyHandsSlotLabel";
+                    costName = "EmptyHandsCostLabel";
+                    slotText = "4\nEMPTY";
+                    costText = "0 ENERGY";
+                    break;
+            }
+
             var slotTransform = parent.Find(slotName);
             var slot = slotTransform != null
                 ? slotTransform.GetComponent<Image>()
@@ -438,20 +477,14 @@ namespace PlayerBlock
             var slotLabel = labelTransform != null
                 ? labelTransform.GetComponent<Text>()
                 : slot != null
-                    ? CreateText(slot.transform, labelName,
-                        kind == CombatSelectionKind.Melee ? "1\nMELEE" : kind == CombatSelectionKind.Ranged ? "2\nRANGED" : "3\nEMPTY",
-                        22,
-                        TextAnchor.MiddleCenter)
+                    ? CreateText(slot.transform, labelName, slotText, 22, TextAnchor.MiddleCenter)
                     : null;
 
             var costTransform = slot != null ? slot.transform.Find(costName) : null;
             var costLabel = costTransform != null
                 ? costTransform.GetComponent<Text>()
                 : slot != null
-                    ? CreateText(slot.transform, costName,
-                        kind == CombatSelectionKind.Melee ? "1 ENERGY" : kind == CombatSelectionKind.Ranged ? "2 ENERGY" : "0 ENERGY",
-                        15,
-                        TextAnchor.MiddleCenter)
+                    ? CreateText(slot.transform, costName, costText, 15, TextAnchor.MiddleCenter)
                     : null;
 
             if (slotLabel != null)
@@ -476,6 +509,12 @@ namespace PlayerBlock
                 rangedShadowSlot = slot;
                 rangedShadowSlotLabel = slotLabel;
                 rangedShadowCostLabel = costLabel;
+            }
+            else if (kind == CombatSelectionKind.Shield)
+            {
+                shieldShadowSlot = slot;
+                shieldShadowSlotLabel = slotLabel;
+                shieldShadowCostLabel = costLabel;
             }
             else
             {
@@ -523,12 +562,15 @@ namespace PlayerBlock
             selectedShadowLabel = selectedShadowLabel != null ? selectedShadowLabel : FindText("ShadowSelectionPanel/SelectedShadowLabel");
             meleeShadowSlot = meleeShadowSlot != null ? meleeShadowSlot : FindImage("ShadowSelectionPanel/MeleeShadowSlot");
             rangedShadowSlot = rangedShadowSlot != null ? rangedShadowSlot : FindImage("ShadowSelectionPanel/RangedShadowSlot");
+            shieldShadowSlot = shieldShadowSlot != null ? shieldShadowSlot : FindImage("ShadowSelectionPanel/ShieldShadowSlot");
             emptyHandsSlot = emptyHandsSlot != null ? emptyHandsSlot : FindImage("ShadowSelectionPanel/EmptyHandsSlot");
             meleeShadowSlotLabel = meleeShadowSlotLabel != null ? meleeShadowSlotLabel : FindText("ShadowSelectionPanel/MeleeShadowSlot/MeleeShadowSlotLabel");
             rangedShadowSlotLabel = rangedShadowSlotLabel != null ? rangedShadowSlotLabel : FindText("ShadowSelectionPanel/RangedShadowSlot/RangedShadowSlotLabel");
+            shieldShadowSlotLabel = shieldShadowSlotLabel != null ? shieldShadowSlotLabel : FindText("ShadowSelectionPanel/ShieldShadowSlot/ShieldShadowSlotLabel");
             emptyHandsSlotLabel = emptyHandsSlotLabel != null ? emptyHandsSlotLabel : FindText("ShadowSelectionPanel/EmptyHandsSlot/EmptyHandsSlotLabel");
             meleeShadowCostLabel = meleeShadowCostLabel != null ? meleeShadowCostLabel : FindText("ShadowSelectionPanel/MeleeShadowSlot/MeleeShadowCostLabel");
             rangedShadowCostLabel = rangedShadowCostLabel != null ? rangedShadowCostLabel : FindText("ShadowSelectionPanel/RangedShadowSlot/RangedShadowCostLabel");
+            shieldShadowCostLabel = shieldShadowCostLabel != null ? shieldShadowCostLabel : FindText("ShadowSelectionPanel/ShieldShadowSlot/ShieldShadowCostLabel");
             emptyHandsCostLabel = emptyHandsCostLabel != null ? emptyHandsCostLabel : FindText("ShadowSelectionPanel/EmptyHandsSlot/EmptyHandsCostLabel");
             crosshairCooldownFill = crosshairCooldownFill != null ? crosshairCooldownFill : FindImage("CrosshairCooldownPanel/CrosshairCooldownBack/CrosshairCooldownFill");
 

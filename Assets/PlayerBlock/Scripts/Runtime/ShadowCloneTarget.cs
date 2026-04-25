@@ -7,21 +7,25 @@ namespace PlayerBlock
     {
         [SerializeField] private float maxHealth = 1f;
         [SerializeField] private float lifeTime = 18f;
-        [SerializeField] private float attackStartRange = 2.2f;
-        [SerializeField] private float rangedAttackRange = 42f;
+        [SerializeField] private float attackStartRange = 2.35f;
+        [SerializeField] private float rangedAttackRange = 18f;
         [SerializeField] private float moveSpeed = 3.6f;
-        [SerializeField] private float rangedPreferredDistance = 7f;
+        [SerializeField] private float shieldMoveSpeed = 2.15f;
+        [SerializeField] private float shieldHoldRange = 2.55f;
+        [SerializeField] private float rangedPreferredDistance = 14f;
         [SerializeField] private float stopDistanceBuffer = 0.25f;
         [SerializeField] private float moveAnimationSpeed = 8.5f;
         [SerializeField] private float moveBobHeight = 0.08f;
         [SerializeField] private float moveArmSwing = 48f;
         [SerializeField] private float moveLegSwing = 42f;
-        [SerializeField] private float handHitRadius = 0.38f;
-        [SerializeField] private float meleeAttackDamage = 5f;
+        [SerializeField] private float handHitRadius = 0.68f;
+        [SerializeField] private float meleeAttackDamage = 3f;
         [SerializeField] private float rangedAttackDamage = 1f;
         [SerializeField] private float rangedProjectileSpeed = 15f;
-        [SerializeField] private float attackCooldown = 0.85f;
-        [SerializeField] private float attackAnimationDuration = 0.22f;
+        [SerializeField] private float meleeAttackCooldown = 1.0f;
+        [SerializeField] private float rangedAttackCooldown = 0.85f;
+        [SerializeField] private float meleeAttackAnimationDuration = 0.34f;
+        [SerializeField] private float rangedAttackAnimationDuration = 0.22f;
         [SerializeField] private float crushHorizontalRadius = 1.15f;
         [SerializeField] private float crushHeightTolerance = 0.25f;
 
@@ -29,6 +33,7 @@ namespace PlayerBlock
         private Transform _head;
         private Transform _leftArm;
         private Transform _rightArm;
+        private Transform _shield;
         private Transform _leftLeg;
         private Transform _rightLeg;
         private ShadowCloneKind _kind = ShadowCloneKind.Melee;
@@ -38,20 +43,76 @@ namespace PlayerBlock
         private Quaternion _headBaseRotation;
         private Quaternion _leftArmBaseRotation;
         private Quaternion _rightArmBaseRotation;
+        private Vector3 _shieldBasePosition;
+        private Quaternion _shieldBaseRotation;
         private Quaternion _leftLegBaseRotation;
         private Quaternion _rightLegBaseRotation;
         private Rigidbody _rigidbody;
+        private Material _shadowMaterial;
         private float _health;
         private float _age;
         private float _attackCooldownTimer;
         private float _attackAnimationTimer;
         private float _moveAnimationTime;
         private bool _hasHitThisSwing;
+        private bool _shieldBroken;
         private bool _isDead;
 
         public void SetKind(ShadowCloneKind kind)
         {
             _kind = kind;
+        }
+
+        public bool IsShield => _kind == ShadowCloneKind.Shield;
+
+        public bool IsShieldBroken => _shieldBroken;
+
+        public bool IsAlive => !_isDead && _health > 0f;
+
+        public Vector3 GetShieldBlockPoint()
+        {
+            if (_shield != null)
+            {
+                return _shield.position + transform.forward * 0.08f;
+            }
+
+            return transform.position + transform.forward * 0.58f + Vector3.up * 1.12f;
+        }
+
+        public bool TryBlockIncomingAttack(Vector3 attackOrigin, Vector3 attackPoint)
+        {
+            if (!IsShield || _shieldBroken)
+            {
+                return false;
+            }
+
+            var blockPoint = GetShieldBlockPoint();
+            var attackVector = attackPoint - attackOrigin;
+            var attackLength = attackVector.magnitude;
+            if (attackLength < 0.001f)
+            {
+                attackVector = transform.forward;
+                attackLength = 0.001f;
+            }
+
+            var direction = attackVector / attackLength;
+            var toBlock = blockPoint - attackOrigin;
+            var along = Vector3.Dot(toBlock, direction);
+            if (along < 0f || along > attackLength)
+            {
+                return false;
+            }
+
+            var closestPoint = attackOrigin + direction * along;
+            if (Vector3.Distance(closestPoint, blockPoint) > 0.95f)
+            {
+                return false;
+            }
+
+            CombatVfxUtility.SpawnImpactBurst(blockPoint, direction, new Color(0.08f, 0.1f, 0.14f, 1f), 0.28f, 7);
+            BreakShieldVisuals(blockPoint, direction);
+            _shieldBroken = true;
+            return true;
         }
 
         public void TakeDamage(float amount)
@@ -77,6 +138,8 @@ namespace PlayerBlock
                 _rigidbody.useGravity = true;
                 _rigidbody.constraints |= RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
             }
+
+            ApplyShadowVisualTheme();
         }
 
         private void Start()
@@ -90,6 +153,7 @@ namespace PlayerBlock
             _head = transform.Find("Head");
             _leftArm = transform.Find("LeftArm");
             _rightArm = transform.Find("RightArm");
+            _shield = transform.Find("Shield");
             _leftLeg = transform.Find("LeftLeg");
             _rightLeg = transform.Find("RightLeg");
 
@@ -113,6 +177,12 @@ namespace PlayerBlock
             if (_rightArm != null)
             {
                 _rightArmBaseRotation = _rightArm.localRotation;
+            }
+
+            if (_shield != null)
+            {
+                _shieldBasePosition = _shield.localPosition;
+                _shieldBaseRotation = _shield.localRotation;
             }
 
             if (_leftLeg != null)
@@ -153,10 +223,11 @@ namespace PlayerBlock
                     if (_kind == ShadowCloneKind.Ranged)
                     {
                         var sqrDistance = (boss.transform.position - transform.position).sqrMagnitude;
+                        // Ranged shadows keep their distance, then fire once the target is inside their attack window.
                         if (sqrDistance <= rangedAttackRange * rangedAttackRange)
                         {
-                            _attackCooldownTimer = attackCooldown;
-                            _attackAnimationTimer = attackAnimationDuration;
+                            _attackCooldownTimer = rangedAttackCooldown;
+                            _attackAnimationTimer = rangedAttackAnimationDuration;
                             _hasHitThisSwing = false;
                             FireRangedShot(boss);
                             _hasHitThisSwing = true;
@@ -164,9 +235,12 @@ namespace PlayerBlock
                     }
                     else
                     {
-                        _attackCooldownTimer = attackCooldown;
-                        _attackAnimationTimer = attackAnimationDuration;
-                        _hasHitThisSwing = false;
+                        if (_kind == ShadowCloneKind.Melee)
+                        {
+                            _attackCooldownTimer = meleeAttackCooldown;
+                            _attackAnimationTimer = meleeAttackAnimationDuration;
+                            _hasHitThisSwing = false;
+                        }
                     }
                 }
             }
@@ -228,6 +302,13 @@ namespace PlayerBlock
                     moveDirection = directionToBoss;
                 }
             }
+            else if (_kind == ShadowCloneKind.Shield)
+            {
+                if (distance > shieldHoldRange - stopDistanceBuffer)
+                {
+                    moveDirection = directionToBoss;
+                }
+            }
             else
             {
                 if (distance > rangedPreferredDistance)
@@ -238,9 +319,38 @@ namespace PlayerBlock
 
             var currentVelocity = _rigidbody.linearVelocity;
             var targetHorizontalVelocity = moveDirection.sqrMagnitude > 0.001f
-                ? moveDirection * moveSpeed
-                : Vector3.MoveTowards(new Vector3(currentVelocity.x, 0f, currentVelocity.z), Vector3.zero, moveSpeed * Time.deltaTime * 3f);
+                ? moveDirection * GetMoveSpeed()
+                : Vector3.MoveTowards(new Vector3(currentVelocity.x, 0f, currentVelocity.z), Vector3.zero, GetMoveSpeed() * Time.deltaTime * 3f);
             _rigidbody.linearVelocity = new Vector3(targetHorizontalVelocity.x, currentVelocity.y, targetHorizontalVelocity.z);
+        }
+
+        private void BreakShieldVisuals(Vector3 blockPoint, Vector3 incomingDirection)
+        {
+            CombatVfxUtility.SpawnImpactBurst(blockPoint, incomingDirection, new Color(0.09f, 0.11f, 0.16f, 1f), 0.34f, 8);
+
+            if (_shield != null)
+            {
+                Destroy(_shield.gameObject);
+                _shield = null;
+            }
+        }
+
+        private void ApplyShadowVisualTheme()
+        {
+            var renderers = GetComponentsInChildren<Renderer>(true);
+            if (renderers == null || renderers.Length == 0)
+            {
+                return;
+            }
+
+            _shadowMaterial = CreateShadowMaterial();
+            for (var i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i] != null)
+                {
+                    renderers[i].sharedMaterial = _shadowMaterial;
+                }
+            }
         }
 
         private void TryHitWithHand()
@@ -250,7 +360,7 @@ namespace PlayerBlock
                 return;
             }
 
-            if (_attackAnimationTimer > attackAnimationDuration * 0.55f)
+            if (_attackAnimationTimer > meleeAttackAnimationDuration * 0.58f)
             {
                 return;
             }
@@ -264,6 +374,7 @@ namespace PlayerBlock
                 if (boss != null && boss.Health > 0f)
                 {
                     boss.TakeDamage(meleeAttackDamage);
+                    CombatVfxUtility.SpawnImpactBurst(handPosition, transform.forward, new Color(0.09f, 0.09f, 0.11f, 1f), 0.22f, 5);
                     return;
                 }
             }
@@ -299,6 +410,7 @@ namespace PlayerBlock
             bolt.AddComponent<Rigidbody>();
             var projectile = bolt.AddComponent<ShadowBoltProjectile>();
             projectile.Launch(direction * rangedProjectileSpeed, rangedAttackDamage);
+            CombatVfxUtility.SpawnMuzzleFlash(spawnPosition, direction, 0.14f, 6);
 
             var selfCollider = GetComponent<Collider>();
             if (selfCollider != null && collider != null)
@@ -311,7 +423,7 @@ namespace PlayerBlock
         {
             if (_rightArm != null)
             {
-                return _rightArm.TransformPoint(Vector3.down * 0.52f + Vector3.forward * 0.18f);
+                return _rightArm.TransformPoint(Vector3.down * 0.46f + Vector3.forward * 0.32f);
             }
 
             return transform.position + transform.forward * 0.9f + Vector3.up * 0.95f + transform.right * 0.45f;
@@ -384,11 +496,12 @@ namespace PlayerBlock
                 horizontalSpeed = velocity.magnitude;
             }
 
-            var moveAmount = Mathf.Clamp01(horizontalSpeed / Mathf.Max(0.01f, moveSpeed));
-            _moveAnimationTime += horizontalSpeed * moveAnimationSpeed * Time.deltaTime;
+            var moveAmount = Mathf.Clamp01(horizontalSpeed / Mathf.Max(0.01f, GetMoveSpeed()));
+            _moveAnimationTime += horizontalSpeed * GetMoveAnimationSpeed() * Time.deltaTime;
             var moveSwing = Mathf.Sin(_moveAnimationTime) * moveAmount;
             var moveBob = Mathf.Abs(Mathf.Sin(_moveAnimationTime)) * moveBobHeight * moveAmount;
-            var attackAmount = attackAnimationDuration <= 0f ? 0f : Mathf.Clamp01(_attackAnimationTimer / attackAnimationDuration);
+            var attackDuration = GetAttackAnimationDuration();
+            var attackAmount = attackDuration <= 0f ? 0f : Mathf.Clamp01(_attackAnimationTimer / attackDuration);
             var swing = Mathf.Sin(attackAmount * Mathf.PI);
             ApplyPosition(_body, _bodyBasePosition + new Vector3(0f, moveBob, 0f));
             ApplyPosition(_head, _headBasePosition + new Vector3(0f, moveBob * 0.65f, 0f));
@@ -398,6 +511,16 @@ namespace PlayerBlock
             {
                 ApplyRotation(_leftArm, _leftArmBaseRotation * Quaternion.Euler(-swing * 28f - moveSwing * moveArmSwing, 0f, -swing * 8f));
                 ApplyRotation(_rightArm, _rightArmBaseRotation * Quaternion.Euler(-swing * 105f + moveSwing * moveArmSwing, 0f, swing * 8f));
+            }
+            else if (_kind == ShadowCloneKind.Shield)
+            {
+                ApplyRotation(_leftArm, _leftArmBaseRotation * Quaternion.Euler(-84f + moveSwing * 0.18f, 0f, 112f));
+                ApplyRotation(_rightArm, _rightArmBaseRotation * Quaternion.Euler(-18f - moveSwing * 0.08f, 0f, -14f));
+                if (!_shieldBroken)
+                {
+                    ApplyPosition(_shield, _shieldBasePosition + new Vector3(0f, moveBob * 0.2f, 0.02f));
+                }
+                ApplyRotation(_shield, _shieldBaseRotation * Quaternion.Euler(0f, 0f, 0f));
             }
             else
             {
@@ -425,6 +548,21 @@ namespace PlayerBlock
             }
         }
 
+        private float GetMoveSpeed()
+        {
+            return _kind == ShadowCloneKind.Shield ? shieldMoveSpeed : moveSpeed;
+        }
+
+        private float GetMoveAnimationSpeed()
+        {
+            return _kind == ShadowCloneKind.Shield ? moveAnimationSpeed * 0.75f : moveAnimationSpeed;
+        }
+
+        private float GetAttackAnimationDuration()
+        {
+            return _kind == ShadowCloneKind.Melee ? meleeAttackAnimationDuration : rangedAttackAnimationDuration;
+        }
+
         private void Die()
         {
             if (_isDead)
@@ -435,6 +573,15 @@ namespace PlayerBlock
             _isDead = true;
             SpawnBreakEffect();
             Destroy(gameObject);
+        }
+
+        private void OnDestroy()
+        {
+            if (_shadowMaterial != null)
+            {
+                Destroy(_shadowMaterial);
+                _shadowMaterial = null;
+            }
         }
 
         private void SpawnBreakEffect()
@@ -497,6 +644,29 @@ namespace PlayerBlock
             {
                 material.EnableKeyword("_EMISSION");
                 material.SetColor("_EmissionColor", new Color(0.012f, 0.008f, 0.02f));
+            }
+
+            return material;
+        }
+
+        private static Material CreateShadowMaterial()
+        {
+            var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            var shadowColor = new Color(0.005f, 0.005f, 0.006f, 1f);
+            var material = new Material(shader)
+            {
+                color = shadowColor
+            };
+
+            if (material.HasProperty("_BaseColor"))
+            {
+                material.SetColor("_BaseColor", shadowColor);
+            }
+
+            if (material.HasProperty("_EmissionColor"))
+            {
+                material.EnableKeyword("_EMISSION");
+                material.SetColor("_EmissionColor", new Color(0.015f, 0.01f, 0.025f));
             }
 
             return material;

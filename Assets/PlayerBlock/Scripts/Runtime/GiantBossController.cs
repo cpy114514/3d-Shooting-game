@@ -112,8 +112,19 @@ namespace PlayerBlock
             }
 
             _health = Mathf.Max(0f, _health - amount);
+            CombatVfxUtility.SpawnDamageNumber(GetDamageNumberPosition(), amount, new Color(1f, 0.84f, 0.34f, 1f));
             UpdateHealthBar();
             UpdatePhase();
+        }
+
+        private Vector3 GetDamageNumberPosition()
+        {
+            if (head != null)
+            {
+                return head.position + Vector3.up * 0.72f;
+            }
+
+            return transform.position + Vector3.up * 2.35f;
         }
 
         private void Awake()
@@ -472,6 +483,11 @@ namespace PlayerBlock
         private void HitTargetsInRadius(Vector3 center, float radius)
         {
             var colliders = Physics.OverlapSphere(center, radius);
+            if (TryBlockByShield(colliders))
+            {
+                return;
+            }
+
             for (var i = 0; i < colliders.Length; i++)
             {
                 HitTargetCollider(colliders[i]);
@@ -482,6 +498,11 @@ namespace PlayerBlock
         {
             var center = transform.position + Vector3.up * 1.35f + transform.forward * 0.95f;
             var colliders = Physics.OverlapSphere(center, sweepRadius);
+            if (TryBlockByShield(colliders))
+            {
+                return;
+            }
+
             for (var i = 0; i < colliders.Length; i++)
             {
                 var targetCollider = colliders[i];
@@ -511,6 +532,11 @@ namespace PlayerBlock
             var center = transform.position + transform.forward * 1.4f + Vector3.up * 1.2f;
             var halfExtents = new Vector3(chargeWidth * 0.5f, 1.5f, 1.4f);
             var colliders = Physics.OverlapBox(center, halfExtents, transform.rotation);
+            if (TryBlockByShield(colliders))
+            {
+                return;
+            }
+
             for (var i = 0; i < colliders.Length; i++)
             {
                 if (_chargeHits.Add(colliders[i]))
@@ -530,7 +556,14 @@ namespace PlayerBlock
             var shadow = targetCollider.GetComponentInParent<ShadowCloneTarget>();
             if (shadow != null)
             {
+                if (shadow.IsShield && !shadow.IsShieldBroken)
+                {
+                    shadow.TryBlockIncomingAttack(transform.position, targetCollider.bounds.center);
+                    return;
+                }
+
                 shadow.TakeDamage(1f);
+                CombatVfxUtility.SpawnImpactBurst(targetCollider.bounds.center, transform.forward, new Color(0.08f, 0.05f, 0.12f, 1f), 0.22f, 5);
                 return;
             }
 
@@ -543,7 +576,33 @@ namespace PlayerBlock
                 {
                     player.transform.position += pushDirection * 1.2f;
                 }
+
+                CombatVfxUtility.SpawnDustBurst(targetCollider.bounds.center, Flatten(transform.forward), 0.28f, 6);
             }
+        }
+
+        private bool TryBlockByShield(Collider[] colliders)
+        {
+            for (var i = 0; i < colliders.Length; i++)
+            {
+                var targetCollider = colliders[i];
+                if (targetCollider == null)
+                {
+                    continue;
+                }
+
+                var shadow = targetCollider.GetComponentInParent<ShadowCloneTarget>();
+                if (shadow != null
+                    && shadow.IsShield
+                    && !shadow.IsShieldBroken
+                    && shadow.IsAlive
+                    && shadow.TryBlockIncomingAttack(transform.position, targetCollider.bounds.center))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private void UpdatePhase()

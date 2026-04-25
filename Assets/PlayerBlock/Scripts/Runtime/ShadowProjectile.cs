@@ -30,6 +30,7 @@ namespace PlayerBlock
             _rigidbody.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             _rigidbody.interpolation = RigidbodyInterpolation.Interpolate;
             _rigidbody.linearVelocity = velocity;
+            CombatVfxUtility.ConfigureTrail(gameObject, 0.18f, Mathf.Max(0.05f, transform.localScale.x * 0.42f));
 
             var projectileCollider = GetComponent<Collider>();
             var ownerCollider = owner != null ? owner.GetComponent<Collider>() : null;
@@ -68,19 +69,52 @@ namespace PlayerBlock
 
             _hasImpacted = true;
             var contact = collision.GetContact(0);
+            var burstColor = _cloneKind == ShadowCloneKind.Ranged
+                ? new Color(0.09f, 0.05f, 0.12f, 1f)
+                : _cloneKind == ShadowCloneKind.Shield
+                    ? new Color(0.07f, 0.09f, 0.12f, 1f)
+                    : new Color(0.11f, 0.11f, 0.12f, 1f);
+            CombatVfxUtility.SpawnImpactBurst(contact.point, contact.normal, burstColor, 0.24f, 6);
             SpawnShadowClone(contact.point, contact.normal, _cloneKind);
             Destroy(gameObject);
         }
 
         private static void SpawnShadowClone(Vector3 position, Vector3 normal, ShadowCloneKind cloneKind)
         {
+            var prefab = ShadowClonePrefabLibrary.GetPrefab(cloneKind);
+            if (prefab != null)
+            {
+                var cloneRoot = Object.Instantiate(prefab);
+                cloneRoot.name = "ShadowClone";
+                cloneRoot.transform.SetPositionAndRotation(
+                    FindGroundedSpawnPosition(position, normal),
+                    Quaternion.identity);
+
+                var shadow = cloneRoot.GetComponent<ShadowCloneTarget>();
+                if (shadow != null)
+                {
+                    shadow.SetKind(cloneKind);
+                }
+
+                return;
+            }
+
+            BuildProceduralShadowClone(position, normal, cloneKind);
+        }
+
+        private static void BuildProceduralShadowClone(Vector3 position, Vector3 normal, ShadowCloneKind cloneKind)
+        {
             var cloneRoot = new GameObject("ShadowClone");
             cloneRoot.transform.position = FindGroundedSpawnPosition(position, normal);
             cloneRoot.transform.rotation = Quaternion.identity;
 
             var cloneCollider = cloneRoot.AddComponent<BoxCollider>();
-            cloneCollider.center = new Vector3(0f, 1f, 0f);
-            cloneCollider.size = new Vector3(1.25f, 2f, 0.75f);
+            cloneCollider.center = cloneKind == ShadowCloneKind.Shield
+                ? new Vector3(0.02f, 1.02f, 0.08f)
+                : new Vector3(0f, 1f, 0f);
+            cloneCollider.size = cloneKind == ShadowCloneKind.Shield
+                ? new Vector3(1.48f, 2.08f, 1.05f)
+                : new Vector3(1.25f, 2f, 0.75f);
 
             var cloneRigidbody = cloneRoot.AddComponent<Rigidbody>();
             cloneRigidbody.useGravity = true;
@@ -98,6 +132,13 @@ namespace PlayerBlock
             CreateBlock(cloneRoot.transform, "RightArm", new Vector3(0.66f, 1.1f, 0f), new Vector3(0.24f, 0.82f, 0.24f), material);
             CreateBlock(cloneRoot.transform, "LeftLeg", new Vector3(-0.24f, 0.34f, 0f), new Vector3(0.32f, 0.68f, 0.32f), material);
             CreateBlock(cloneRoot.transform, "RightLeg", new Vector3(0.24f, 0.34f, 0f), new Vector3(0.32f, 0.68f, 0.32f), material);
+
+            if (cloneKind == ShadowCloneKind.Shield)
+            {
+                CreateBlock(cloneRoot.transform, "Shield", new Vector3(-0.52f, 1.12f, 0.36f), new Vector3(0.82f, 1.14f, 0.14f), material);
+                CreateBlock(cloneRoot.transform, "ShieldBoss", new Vector3(-0.16f, 0.96f, 0.42f), new Vector3(0.24f, 0.38f, 0.1f), material);
+            }
+
             var shadow = cloneRoot.AddComponent<ShadowCloneTarget>();
             shadow.SetKind(cloneKind);
         }

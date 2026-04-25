@@ -3,6 +3,7 @@ namespace PlayerBlock
     public enum ShadowCloneKind
     {
         Melee,
-        Ranged
+        Ranged,
+        Shield
     }
 }

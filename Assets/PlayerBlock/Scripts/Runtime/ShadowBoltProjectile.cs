@@ -20,6 +20,7 @@ namespace PlayerBlock
             _rigidbody.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             _rigidbody.interpolation = RigidbodyInterpolation.Interpolate;
             _rigidbody.linearVelocity = velocity;
+            CombatVfxUtility.ConfigureTrail(gameObject, 0.14f, Mathf.Max(0.04f, transform.localScale.x * 0.32f));
         }
 
         private void Awake()
@@ -38,10 +39,16 @@ namespace PlayerBlock
 
         private void OnCollisionEnter(Collision collision)
         {
+            var contact = collision.GetContact(0);
             var boss = collision.collider.GetComponentInParent<GiantBossController>();
             if (boss != null)
             {
                 boss.TakeDamage(damage);
+                CombatVfxUtility.SpawnImpactBurst(contact.point, contact.normal, new Color(0.1f, 0.06f, 0.14f, 1f), 0.18f, 5);
+            }
+            else
+            {
+                CombatVfxUtility.SpawnDustBurst(contact.point, contact.normal, 0.14f, 4);
             }
 
             Destroy(gameObject);

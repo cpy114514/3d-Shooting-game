@@ -466,8 +466,8 @@ MonoBehaviour:
   shadowBulletSpeed: 24
   meleeShadowCooldown: 1.2
   rangedShadowCooldown: 2.2
-  shadowBulletRadius: 0.16
-  punchDamage: 2
+  shadowBulletRadius: 0.2
+  punchDamage: 5
   punchRange: 0.72
   punchRadius: 0.32
   punchCooldown: 0.5

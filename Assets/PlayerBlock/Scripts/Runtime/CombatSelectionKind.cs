@@ -4,6 +4,7 @@ namespace PlayerBlock
     {
         Melee,
         Ranged,
+        Shield,
         Hands
     }
 }

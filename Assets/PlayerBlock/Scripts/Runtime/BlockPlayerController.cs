@@ -35,8 +35,9 @@ namespace PlayerBlock
         [SerializeField] private float shadowEnergyRegenPerSecond = 1.5f;
         [SerializeField] private float meleeShadowEnergyCost = 1f;
         [SerializeField] private float rangedShadowEnergyCost = 2f;
-        [SerializeField] private float shadowBulletRadius = 0.16f;
-        [SerializeField] private float punchDamage = 2f;
+        [SerializeField] private float shieldShadowEnergyCost = 2f;
+        [SerializeField] private float shadowBulletRadius = 0.2f;
+        [SerializeField] private float punchDamage = 5f;
         [SerializeField] private float punchRange = 0.72f;
         [SerializeField] private float punchRadius = 0.32f;
         [SerializeField] private float punchCooldown = 0.5f;
@@ -107,6 +108,7 @@ namespace PlayerBlock
             }
 
             _health = Mathf.Max(0f, _health - amount);
+            CombatVfxUtility.SpawnDustBurst(transform.position + Vector3.up * 1.1f, Vector3.up, 0.32f, 6);
             UpdateHealthBar();
         }
 
@@ -435,7 +437,7 @@ namespace PlayerBlock
             var projectile = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             projectile.name = "ShadowBullet";
             projectile.transform.position = spawnPosition;
-            projectile.transform.localScale = Vector3.one * (shadowBulletRadius * 2f);
+            projectile.transform.localScale = Vector3.one * (shadowBulletRadius * 2.75f);
 
             var renderer = projectile.GetComponent<Renderer>();
             if (renderer != null)
@@ -446,21 +448,16 @@ namespace PlayerBlock
             var collider = projectile.GetComponent<SphereCollider>();
             if (collider != null)
             {
-                collider.radius = 0.5f;
+                collider.radius = 0.58f;
             }
 
             projectile.AddComponent<Rigidbody>();
             var shadowProjectile = projectile.AddComponent<ShadowProjectile>();
-            shadowProjectile.SetCloneKind(_selectedCombatKind == CombatSelectionKind.Melee
-                ? ShadowCloneKind.Melee
-                : ShadowCloneKind.Ranged);
+            shadowProjectile.SetCloneKind(GetSelectedCloneKind());
             shadowProjectile.Launch(fireDirection * shadowBulletSpeed, gameObject);
 
-            var trail = projectile.AddComponent<TrailRenderer>();
-            trail.time = 0.18f;
-            trail.startWidth = shadowBulletRadius * 1.4f;
-            trail.endWidth = 0f;
-            trail.sharedMaterial = CreateShadowBulletMaterial();
+            CombatVfxUtility.ConfigureTrail(projectile, 0.22f, shadowBulletRadius * 1.9f);
+            CombatVfxUtility.SpawnMuzzleFlash(spawnPosition, fireDirection, 0.16f, 7);
         }
 
         private void StartMeleeComboAttack()
@@ -494,6 +491,7 @@ namespace PlayerBlock
                 if (boss != null && boss.Health > 0f)
                 {
                     boss.TakeDamage(punchDamage);
+                    CombatVfxUtility.SpawnImpactBurst(punchCenter, GetAimDirection(), new Color(0.08f, 0.08f, 0.1f, 1f), 0.26f, 6);
                     return;
                 }
             }
@@ -513,24 +511,7 @@ namespace PlayerBlock
 
         private static Material CreateShadowBulletMaterial()
         {
-            var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
-            var material = new Material(shader)
-            {
-                color = new Color(0.08f, 0.02f, 0.16f, 1f)
-            };
-
-            if (material.HasProperty("_BaseColor"))
-            {
-                material.SetColor("_BaseColor", new Color(0.08f, 0.02f, 0.16f, 1f));
-            }
-
-            if (material.HasProperty("_EmissionColor"))
-            {
-                material.EnableKeyword("_EMISSION");
-                material.SetColor("_EmissionColor", new Color(0.35f, 0.05f, 0.85f));
-            }
-
-            return material;
+            return CombatVfxUtility.GetBlackBulletMaterial();
         }
 
         private void ApplyShootAnimation(ref Vector3 targetPosition, ref Quaternion targetRotation, string bodyPartName)
@@ -807,7 +788,11 @@ namespace PlayerBlock
 
         private void UpdateSelectedShadowHud()
         {
-            CombatHud.Instance.SetSelectedShadowInventory(_selectedCombatKind, meleeShadowEnergyCost, rangedShadowEnergyCost);
+            CombatHud.Instance.SetSelectedShadowInventory(
+                _selectedCombatKind,
+                meleeShadowEnergyCost,
+                rangedShadowEnergyCost,
+                shieldShadowEnergyCost);
         }
 
         private bool CanFireSelectedShadow()
@@ -823,6 +808,8 @@ namespace PlayerBlock
                     return meleeShadowEnergyCost;
                 case CombatSelectionKind.Ranged:
                     return rangedShadowEnergyCost;
+                case CombatSelectionKind.Shield:
+                    return shieldShadowEnergyCost;
                 default:
                     return 0f;
             }
@@ -875,6 +862,8 @@ namespace PlayerBlock
                 case CombatSelectionKind.Melee:
                     return CombatSelectionKind.Ranged;
                 case CombatSelectionKind.Ranged:
+                    return CombatSelectionKind.Shield;
+                case CombatSelectionKind.Shield:
                     return CombatSelectionKind.Hands;
                 default:
                     return CombatSelectionKind.Melee;
@@ -889,8 +878,10 @@ namespace PlayerBlock
                     return CombatSelectionKind.Hands;
                 case CombatSelectionKind.Ranged:
                     return CombatSelectionKind.Melee;
-                default:
+                case CombatSelectionKind.Shield:
                     return CombatSelectionKind.Ranged;
+                default:
+                    return CombatSelectionKind.Shield;
             }
         }
 
@@ -1104,6 +1095,11 @@ namespace PlayerBlock
 
             if (keyboard.digit3Key.wasPressedThisFrame || keyboard.numpad3Key.wasPressedThisFrame)
             {
+                return CombatSelectionKind.Shield;
+            }
+
+            if (keyboard.digit4Key.wasPressedThisFrame || keyboard.numpad4Key.wasPressedThisFrame)
+            {
                 return CombatSelectionKind.Hands;
             }
 
@@ -1121,11 +1117,31 @@ namespace PlayerBlock
 
             if (Input.GetKeyDown(KeyCode.Alpha3) || Input.GetKeyDown(KeyCode.Keypad3))
             {
+                return CombatSelectionKind.Shield;
+            }
+
+            if (Input.GetKeyDown(KeyCode.Alpha4) || Input.GetKeyDown(KeyCode.Keypad4))
+            {
                 return CombatSelectionKind.Hands;
             }
 
             return null;
 #endif
+        }
+
+        private ShadowCloneKind GetSelectedCloneKind()
+        {
+            switch (_selectedCombatKind)
+            {
+                case CombatSelectionKind.Melee:
+                    return ShadowCloneKind.Melee;
+                case CombatSelectionKind.Ranged:
+                    return ShadowCloneKind.Ranged;
+                case CombatSelectionKind.Shield:
+                    return ShadowCloneKind.Shield;
+                default:
+                    return ShadowCloneKind.Melee;
+            }
         }
 
         private static float ReadShadowScroll()
