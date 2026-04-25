@@ -52,13 +52,14 @@ namespace PlayerBlock.Editor
         {
             var root = new GameObject("GiantBoss");
             var controller = root.AddComponent<CharacterController>();
-            controller.center = new Vector3(0f, 2.2f, 0f);
-            controller.height = 4.4f;
-            controller.radius = 1.15f;
+            controller.center = new Vector3(0f, 2.05f, 0f);
+            controller.height = 4.25f;
+            controller.radius = 0.5f;
             controller.stepOffset = 0.45f;
             controller.skinWidth = 0.06f;
 
             root.AddComponent<GiantBossController>();
+            CreateHurtbox(root.transform);
 
             var visual = new GameObject("Visual");
             visual.transform.SetParent(root.transform, false);
@@ -76,6 +77,20 @@ namespace PlayerBlock.Editor
 
             PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
             Object.DestroyImmediate(root);
+        }
+
+        private static void CreateHurtbox(Transform parent)
+        {
+            var hurtboxObject = new GameObject("BossHurtbox");
+            hurtboxObject.transform.SetParent(parent, false);
+            hurtboxObject.transform.localPosition = Vector3.zero;
+            hurtboxObject.transform.localRotation = Quaternion.identity;
+            hurtboxObject.transform.localScale = Vector3.one;
+
+            var hurtbox = hurtboxObject.AddComponent<BoxCollider>();
+            hurtbox.isTrigger = true;
+            hurtbox.center = new Vector3(0f, 2.15f, 0.05f);
+            hurtbox.size = new Vector3(3.35f, 4.2f, 1.8f);
         }
 
         private static void CreateBlock(Transform parent, string name, Vector3 position, Vector3 scale, Material material)

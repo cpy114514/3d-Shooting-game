@@ -55,7 +55,16 @@ namespace PlayerBlock
             var cameraToFace = Camera.main != null ? Camera.main : FindFirstObjectByType<Camera>();
             if (cameraToFace != null)
             {
-                transform.rotation = Quaternion.LookRotation(cameraToFace.transform.position - transform.position, cameraToFace.transform.up);
+                var toCamera = cameraToFace.transform.position - transform.position;
+                toCamera.y = 0f;
+                if (toCamera.sqrMagnitude > 0.0001f)
+                {
+                    transform.rotation = Quaternion.LookRotation(toCamera.normalized, Vector3.up);
+                }
+                else
+                {
+                    transform.rotation = Quaternion.LookRotation(-cameraToFace.transform.forward, Vector3.up);
+                }
             }
 
             if (_textMesh != null)

@@ -72,7 +72,6 @@ namespace PlayerBlock
         [SerializeField] private Transform leftLeg;
         [SerializeField] private Transform rightLeg;
         [SerializeField] private float visualSharpness = 10f;
-        [SerializeField] private float visualGroundOffset = -0.08f;
 
         private readonly HashSet<Collider> _chargeHits = new HashSet<Collider>();
         private CharacterController _controller;
@@ -139,7 +138,6 @@ namespace PlayerBlock
 
             if (visualRoot != null)
             {
-                visualRoot.localPosition = new Vector3(visualRoot.localPosition.x, visualGroundOffset, visualRoot.localPosition.z);
                 body = body != null ? body : visualRoot.Find("Body");
                 head = head != null ? head : visualRoot.Find("Head");
                 leftArm = leftArm != null ? leftArm : visualRoot.Find("LeftArm");

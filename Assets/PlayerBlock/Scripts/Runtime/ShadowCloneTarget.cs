@@ -5,9 +5,16 @@ namespace PlayerBlock
     [RequireComponent(typeof(Rigidbody))]
     public sealed class ShadowCloneTarget : MonoBehaviour
     {
+        private enum MeleeState
+        {
+            Ready,
+            Windup,
+            Strike,
+            Recovery
+        }
+
         [SerializeField] private float maxHealth = 1f;
         [SerializeField] private float lifeTime = 18f;
-        [SerializeField] private float attackStartRange = 2.35f;
         [SerializeField] private float rangedAttackRange = 18f;
         [SerializeField] private float moveSpeed = 3.6f;
         [SerializeField] private float shieldMoveSpeed = 2.15f;
@@ -19,12 +26,20 @@ namespace PlayerBlock
         [SerializeField] private float moveArmSwing = 48f;
         [SerializeField] private float moveLegSwing = 42f;
         [SerializeField] private float handHitRadius = 0.68f;
+        [SerializeField] private float meleeApproachStopDistance = 0.85f;
+        [SerializeField] private float meleeAttackStartDistance = 1.15f;
+        [SerializeField] private float meleeStrikeDuration = 0.22f;
+        [SerializeField] private float meleeRecoverDuration = 0.48f;
+        [SerializeField] private float meleeHitConfirmDistance = 1.45f;
+        [SerializeField] private float meleeHitForwardRange = 2.9f;
+        [SerializeField] private float meleeHitVerticalRange = 1.65f;
+        [SerializeField] private float meleeSpawnStunDuration = 0.25f;
+        [SerializeField] private float meleeAttackWindupDuration = 0.3f;
         [SerializeField] private float meleeAttackDamage = 3f;
         [SerializeField] private float rangedAttackDamage = 1f;
         [SerializeField] private float rangedProjectileSpeed = 15f;
         [SerializeField] private float meleeAttackCooldown = 1.0f;
         [SerializeField] private float rangedAttackCooldown = 0.85f;
-        [SerializeField] private float meleeAttackAnimationDuration = 0.34f;
         [SerializeField] private float rangedAttackAnimationDuration = 0.22f;
         [SerializeField] private float crushHorizontalRadius = 1.15f;
         [SerializeField] private float crushHeightTolerance = 0.25f;
@@ -49,11 +64,14 @@ namespace PlayerBlock
         private Quaternion _rightLegBaseRotation;
         private Rigidbody _rigidbody;
         private Material _shadowMaterial;
+        private float _spawnStunTimer;
         private float _health;
         private float _age;
         private float _attackCooldownTimer;
         private float _attackAnimationTimer;
+        private float _meleeStateTimer;
         private float _moveAnimationTime;
+        private MeleeState _meleeState = MeleeState.Ready;
         private bool _hasHitThisSwing;
         private bool _shieldBroken;
         private bool _isDead;
@@ -61,6 +79,10 @@ namespace PlayerBlock
         public void SetKind(ShadowCloneKind kind)
         {
             _kind = kind;
+            _spawnStunTimer = _kind == ShadowCloneKind.Melee ? meleeSpawnStunDuration : 0f;
+            _meleeState = MeleeState.Ready;
+            _meleeStateTimer = 0f;
+            _hasHitThisSwing = false;
         }
 
         public bool IsShield => _kind == ShadowCloneKind.Shield;
@@ -132,6 +154,9 @@ namespace PlayerBlock
         private void Awake()
         {
             _health = maxHealth;
+            _spawnStunTimer = _kind == ShadowCloneKind.Melee ? meleeSpawnStunDuration : 0f;
+            _meleeState = MeleeState.Ready;
+            _meleeStateTimer = 0f;
             _rigidbody = GetComponent<Rigidbody>();
             if (_rigidbody != null)
             {
@@ -207,9 +232,18 @@ namespace PlayerBlock
 
             _attackCooldownTimer = Mathf.Max(0f, _attackCooldownTimer - Time.deltaTime);
             _attackAnimationTimer = Mathf.Max(0f, _attackAnimationTimer - Time.deltaTime);
+            _spawnStunTimer = Mathf.Max(0f, _spawnStunTimer - Time.deltaTime);
+            _meleeStateTimer = Mathf.Max(0f, _meleeStateTimer - Time.deltaTime);
 
             if (TryCrushByBoss())
             {
+                return;
+            }
+
+            if (_kind == ShadowCloneKind.Melee && _spawnStunTimer > 0f)
+            {
+                StopHorizontalMovement();
+                UpdateAttackVisual();
                 return;
             }
 
@@ -217,10 +251,14 @@ namespace PlayerBlock
             if (boss != null)
             {
                 FaceBoss(boss.transform);
-                MoveAroundBoss(boss.transform);
-                if (_attackCooldownTimer <= 0f)
+                if (_kind == ShadowCloneKind.Melee)
                 {
-                    if (_kind == ShadowCloneKind.Ranged)
+                    UpdateMeleeCombat(boss);
+                }
+                else
+                {
+                    MoveAroundBoss(boss.transform);
+                    if (_attackCooldownTimer <= 0f && _kind == ShadowCloneKind.Ranged)
                     {
                         var sqrDistance = (boss.transform.position - transform.position).sqrMagnitude;
                         // Ranged shadows keep their distance, then fire once the target is inside their attack window.
@@ -233,21 +271,12 @@ namespace PlayerBlock
                             _hasHitThisSwing = true;
                         }
                     }
-                    else
-                    {
-                        if (_kind == ShadowCloneKind.Melee)
-                        {
-                            _attackCooldownTimer = meleeAttackCooldown;
-                            _attackAnimationTimer = meleeAttackAnimationDuration;
-                            _hasHitThisSwing = false;
-                        }
-                    }
                 }
             }
-
-            if (_kind == ShadowCloneKind.Melee)
+            else if (_kind == ShadowCloneKind.Melee)
             {
-                TryHitWithHand();
+                StopHorizontalMovement();
+                _meleeState = MeleeState.Ready;
             }
 
             UpdateAttackVisual();
@@ -277,6 +306,90 @@ namespace PlayerBlock
             return bestBoss;
         }
 
+        private void UpdateMeleeCombat(GiantBossController boss)
+        {
+            if (boss == null)
+            {
+                StopHorizontalMovement();
+                _meleeState = MeleeState.Ready;
+                return;
+            }
+
+            switch (_meleeState)
+            {
+                case MeleeState.Windup:
+                    StopHorizontalMovement();
+                    if (_meleeStateTimer <= 0f)
+                    {
+                        BeginMeleeStrike();
+                    }
+                    return;
+                case MeleeState.Strike:
+                    StopHorizontalMovement();
+                    TryHitWithHand(boss);
+                    if (_meleeStateTimer <= 0f)
+                    {
+                        BeginMeleeRecovery();
+                    }
+                    return;
+                case MeleeState.Recovery:
+                    StopHorizontalMovement();
+                    if (_meleeStateTimer <= 0f)
+                    {
+                        _meleeState = MeleeState.Ready;
+                    }
+                    return;
+            }
+
+            var targetPoint = GetMeleeTargetPoint(boss);
+            var flatOffset = targetPoint - transform.position;
+            flatOffset.y = 0f;
+            var distanceToTarget = flatOffset.magnitude;
+
+            if (distanceToTarget > meleeApproachStopDistance)
+            {
+                MoveTowardPoint(targetPoint);
+                return;
+            }
+
+            StopHorizontalMovement();
+            if (_attackCooldownTimer <= 0f && distanceToTarget <= meleeAttackStartDistance)
+            {
+                BeginMeleeWindup();
+            }
+        }
+
+        private Vector3 GetMeleeTargetPoint(GiantBossController boss)
+        {
+            var referencePoint = transform.position + Vector3.up * 1.05f + transform.forward * 0.25f;
+            return TryGetClosestBossPoint(boss, referencePoint, out var closestPoint)
+                ? closestPoint
+                : boss.transform.position + Vector3.up * 1.1f;
+        }
+
+        private void BeginMeleeWindup()
+        {
+            _meleeState = MeleeState.Windup;
+            _meleeStateTimer = Mathf.Max(0f, meleeAttackWindupDuration);
+            _attackAnimationTimer = meleeAttackWindupDuration + meleeStrikeDuration;
+            _hasHitThisSwing = false;
+        }
+
+        private void BeginMeleeStrike()
+        {
+            _meleeState = MeleeState.Strike;
+            _meleeStateTimer = Mathf.Max(0.02f, meleeStrikeDuration);
+            _attackAnimationTimer = Mathf.Max(_attackAnimationTimer, meleeStrikeDuration);
+        }
+
+        private void BeginMeleeRecovery()
+        {
+            _meleeState = MeleeState.Recovery;
+            _meleeStateTimer = Mathf.Max(0f, meleeRecoverDuration);
+            _attackCooldownTimer = meleeAttackCooldown;
+            _attackAnimationTimer = 0f;
+        }
+
         private void MoveAroundBoss(Transform boss)
         {
             if (_rigidbody == null || boss == null)
@@ -295,14 +408,7 @@ namespace PlayerBlock
             var directionToBoss = offset / distance;
             var moveDirection = Vector3.zero;
 
-            if (_kind == ShadowCloneKind.Melee)
-            {
-                if (distance > attackStartRange - stopDistanceBuffer)
-                {
-                    moveDirection = directionToBoss;
-                }
-            }
-            else if (_kind == ShadowCloneKind.Shield)
+            if (_kind == ShadowCloneKind.Shield)
             {
                 if (distance > shieldHoldRange - stopDistanceBuffer)
                 {
@@ -322,6 +428,41 @@ namespace PlayerBlock
                 ? moveDirection * GetMoveSpeed()
                 : Vector3.MoveTowards(new Vector3(currentVelocity.x, 0f, currentVelocity.z), Vector3.zero, GetMoveSpeed() * Time.deltaTime * 3f);
             _rigidbody.linearVelocity = new Vector3(targetHorizontalVelocity.x, currentVelocity.y, targetHorizontalVelocity.z);
+        }
+
+        private void MoveTowardPoint(Vector3 worldPoint)
+        {
+            if (_rigidbody == null)
+            {
+                return;
+            }
+
+            var offset = worldPoint - transform.position;
+            offset.y = 0f;
+            if (offset.sqrMagnitude < 0.001f)
+            {
+                StopHorizontalMovement();
+                return;
+            }
+
+            var currentVelocity = _rigidbody.linearVelocity;
+            var targetVelocity = offset.normalized * GetMoveSpeed();
+            _rigidbody.linearVelocity = new Vector3(targetVelocity.x, currentVelocity.y, targetVelocity.z);
+        }
+
+        private void StopHorizontalMovement()
+        {
+            if (_rigidbody == null)
+            {
+                return;
+            }
+
+            var currentVelocity = _rigidbody.linearVelocity;
+            var targetHorizontal = Vector3.MoveTowards(
+                new Vector3(currentVelocity.x, 0f, currentVelocity.z),
+                Vector3.zero,
+                GetMoveSpeed() * Time.deltaTime * 5f);
+            _rigidbody.linearVelocity = new Vector3(targetHorizontal.x, currentVelocity.y, targetHorizontal.z);
         }
 
         private void BreakShieldVisuals(Vector3 blockPoint, Vector3 incomingDirection)
@@ -353,31 +494,121 @@ namespace PlayerBlock
             }
         }
 
-        private void TryHitWithHand()
+        private void TryHitWithHand(GiantBossController targetBoss)
         {
-            if (_hasHitThisSwing || _attackAnimationTimer <= 0f)
+            if (_hasHitThisSwing || _meleeState != MeleeState.Strike)
             {
                 return;
             }
 
-            if (_attackAnimationTimer > meleeAttackAnimationDuration * 0.58f)
+            var handPosition = GetRightHandPosition();
+            if (TryDamageBossFromDirectHandOverlap(targetBoss, handPosition))
+            {
+                return;
+            }
+
+            if (TryConfirmMeleeHitAgainstBoss(targetBoss, handPosition, out var impactPoint))
+            {
+                ApplyMeleeDamage(targetBoss, impactPoint);
+            }
+        }
+
+        private bool TryDamageBossFromDirectHandOverlap(GiantBossController targetBoss, Vector3 handPosition)
+        {
+            var colliders = Physics.OverlapSphere(handPosition, handHitRadius, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide);
+            for (var i = 0; i < colliders.Length; i++)
+            {
+                var boss = colliders[i].GetComponentInParent<GiantBossController>();
+                if (boss != null && boss == targetBoss && boss.Health > 0f)
+                {
+                    var impactPoint = colliders[i].ClosestPoint(handPosition);
+                    ApplyMeleeDamage(boss, impactPoint);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool TryConfirmMeleeHitAgainstBoss(GiantBossController boss, Vector3 handPosition, out Vector3 impactPoint)
+        {
+            impactPoint = handPosition;
+            if (boss == null || boss.Health <= 0f)
+            {
+                return false;
+            }
+
+            if (!TryGetClosestBossPoint(boss, handPosition, out impactPoint))
+            {
+                impactPoint = boss.transform.position + Vector3.up * 1.4f;
+            }
+
+            var handToBoss = impactPoint - handPosition;
+            if (Mathf.Abs(handToBoss.y) > meleeHitVerticalRange)
+            {
+                return false;
+            }
+
+            var flatFromHand = handToBoss;
+            flatFromHand.y = 0f;
+            if (flatFromHand.magnitude > meleeHitConfirmDistance)
+            {
+                return false;
+            }
+
+            var flatFromShadow = impactPoint - transform.position;
+            flatFromShadow.y = 0f;
+            if (flatFromShadow.magnitude > meleeHitForwardRange)
+            {
+                return false;
+            }
+
+            if (flatFromShadow.sqrMagnitude <= 0.001f)
+            {
+                return true;
+            }
+
+            return Vector3.Dot(transform.forward, flatFromShadow.normalized) > 0.2f;
+        }
+
+        private static bool TryGetClosestBossPoint(GiantBossController boss, Vector3 handPosition, out Vector3 closestPoint)
+        {
+            closestPoint = handPosition;
+            var colliders = boss.GetComponentsInChildren<Collider>();
+            var bestDistance = float.PositiveInfinity;
+            var found = false;
+
+            for (var i = 0; i < colliders.Length; i++)
+            {
+                var collider = colliders[i];
+                if (collider == null || !collider.enabled)
+                {
+                    continue;
+                }
+
+                var point = collider.ClosestPoint(handPosition);
+                var sqrDistance = (point - handPosition).sqrMagnitude;
+                if (sqrDistance < bestDistance)
+                {
+                    bestDistance = sqrDistance;
+                    closestPoint = point;
+                    found = true;
+                }
+            }
+
+            return found;
+        }
+
+        private void ApplyMeleeDamage(GiantBossController boss, Vector3 impactPoint)
+        {
+            if (_hasHitThisSwing)
             {
                 return;
             }
 
             _hasHitThisSwing = true;
-            var handPosition = GetRightHandPosition();
-            var colliders = Physics.OverlapSphere(handPosition, handHitRadius);
-            for (var i = 0; i < colliders.Length; i++)
-            {
-                var boss = colliders[i].GetComponentInParent<GiantBossController>();
-                if (boss != null && boss.Health > 0f)
-                {
-                    boss.TakeDamage(meleeAttackDamage);
-                    CombatVfxUtility.SpawnImpactBurst(handPosition, transform.forward, new Color(0.09f, 0.09f, 0.11f, 1f), 0.22f, 5);
-                    return;
-                }
-            }
+            boss.TakeDamage(meleeAttackDamage);
+            CombatVfxUtility.SpawnImpactBurst(impactPoint, transform.forward, new Color(0.09f, 0.09f, 0.11f, 1f), 0.22f, 5);
         }
 
         private void FireRangedShot(GiantBossController boss)
@@ -560,7 +791,7 @@ namespace PlayerBlock
 
         private float GetAttackAnimationDuration()
         {
-            return _kind == ShadowCloneKind.Melee ? meleeAttackAnimationDuration : rangedAttackAnimationDuration;
+            return _kind == ShadowCloneKind.Melee ? meleeAttackWindupDuration + meleeStrikeDuration : rangedAttackAnimationDuration;
         }
 
         private void Die()

@@ -70,21 +70,18 @@ namespace PlayerBlock.Editor
                 ShadowCloneKind.Melee,
                 MeleePrefabPath,
                 includeShieldVisuals: false,
-                meleeAttackAnimationDuration: 0.34f,
                 rangedAttackAnimationDuration: 0.22f);
 
             CreatePrefab(
                 ShadowCloneKind.Ranged,
                 RangedPrefabPath,
                 includeShieldVisuals: false,
-                meleeAttackAnimationDuration: 0.34f,
                 rangedAttackAnimationDuration: 0.22f);
 
             CreatePrefab(
                 ShadowCloneKind.Shield,
                 ShieldPrefabPath,
                 includeShieldVisuals: true,
-                meleeAttackAnimationDuration: 0.34f,
                 rangedAttackAnimationDuration: 0.22f);
         }
 
@@ -92,7 +89,6 @@ namespace PlayerBlock.Editor
             ShadowCloneKind cloneKind,
             string prefabPath,
             bool includeShieldVisuals,
-            float meleeAttackAnimationDuration,
             float rangedAttackAnimationDuration)
         {
             var existing = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
@@ -120,7 +116,7 @@ namespace PlayerBlock.Editor
             rigidbody.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
 
             var target = root.AddComponent<ShadowCloneTarget>();
-            ConfigureShadowTarget(target, cloneKind, meleeAttackAnimationDuration, rangedAttackAnimationDuration);
+            ConfigureShadowTarget(target, cloneKind, rangedAttackAnimationDuration);
 
             var material = GetSharedMaterial();
             CreateBlock(root.transform, "Body", new Vector3(0f, 1.05f, 0f), new Vector3(0.86f, 1.08f, 0.46f), material);
@@ -143,13 +139,11 @@ namespace PlayerBlock.Editor
         private static void ConfigureShadowTarget(
             ShadowCloneTarget target,
             ShadowCloneKind cloneKind,
-            float meleeAttackAnimationDuration,
             float rangedAttackAnimationDuration)
         {
             var serializedTarget = new SerializedObject(target);
             SetFloat(serializedTarget, "maxHealth", 1f);
             SetFloat(serializedTarget, "lifeTime", 18f);
-            SetFloat(serializedTarget, "attackStartRange", 2.35f);
             SetFloat(serializedTarget, "rangedAttackRange", 18f);
             SetFloat(serializedTarget, "moveSpeed", 3.6f);
             SetFloat(serializedTarget, "shieldMoveSpeed", 2.15f);
@@ -161,12 +155,20 @@ namespace PlayerBlock.Editor
             SetFloat(serializedTarget, "moveArmSwing", 48f);
             SetFloat(serializedTarget, "moveLegSwing", 42f);
             SetFloat(serializedTarget, "handHitRadius", 0.68f);
+            SetFloat(serializedTarget, "meleeApproachStopDistance", 0.85f);
+            SetFloat(serializedTarget, "meleeAttackStartDistance", 1.15f);
+            SetFloat(serializedTarget, "meleeStrikeDuration", 0.22f);
+            SetFloat(serializedTarget, "meleeRecoverDuration", 0.48f);
+            SetFloat(serializedTarget, "meleeHitConfirmDistance", 1.45f);
+            SetFloat(serializedTarget, "meleeHitForwardRange", 2.9f);
+            SetFloat(serializedTarget, "meleeHitVerticalRange", 1.65f);
+            SetFloat(serializedTarget, "meleeSpawnStunDuration", 0.25f);
+            SetFloat(serializedTarget, "meleeAttackWindupDuration", 0.3f);
             SetFloat(serializedTarget, "meleeAttackDamage", 3f);
             SetFloat(serializedTarget, "rangedAttackDamage", 1f);
             SetFloat(serializedTarget, "rangedProjectileSpeed", 15f);
             SetFloat(serializedTarget, "meleeAttackCooldown", 1.0f);
             SetFloat(serializedTarget, "rangedAttackCooldown", 0.85f);
-            SetFloat(serializedTarget, "meleeAttackAnimationDuration", meleeAttackAnimationDuration);
             SetFloat(serializedTarget, "rangedAttackAnimationDuration", rangedAttackAnimationDuration);
             SetFloat(serializedTarget, "crushHorizontalRadius", 1.15f);
             SetFloat(serializedTarget, "crushHeightTolerance", 0.25f);
@@ -186,13 +188,17 @@ namespace PlayerBlock.Editor
         private static Material GetSharedMaterial()
         {
             var material = AssetDatabase.LoadAssetAtPath<Material>(SharedMaterialPath);
-            if (material != null)
+            var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            if (material == null)
             {
-                return material;
+                material = new Material(shader);
+                AssetDatabase.CreateAsset(material, SharedMaterialPath);
+            }
+            else if (material.shader != shader && shader != null)
+            {
+                material.shader = shader;
             }
 
-            var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
-            material = new Material(shader);
             material.color = new Color(0.72f, 0.74f, 0.78f);
             if (material.HasProperty("_BaseColor"))
             {
@@ -204,6 +210,7 @@ namespace PlayerBlock.Editor
                 material.SetColor("_Color", material.color);
             }
 
+            EditorUtility.SetDirty(material);
             return material;
         }
 

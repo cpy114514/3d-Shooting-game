@@ -484,7 +484,7 @@ namespace PlayerBlock
 
             _meleeComboHasHit = true;
             var punchCenter = GetMeleeComboHitCenter();
-            var colliders = Physics.OverlapSphere(punchCenter, punchRadius);
+            var colliders = Physics.OverlapSphere(punchCenter, punchRadius, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide);
             for (var i = 0; i < colliders.Length; i++)
             {
                 var boss = colliders[i].GetComponentInParent<GiantBossController>();
