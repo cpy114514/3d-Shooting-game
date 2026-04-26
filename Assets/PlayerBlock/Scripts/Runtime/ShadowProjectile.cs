@@ -10,6 +10,9 @@ namespace PlayerBlock
         [SerializeField] private float pulseSpeed = 16f;
         [SerializeField] private float pulseAmount = 0.16f;
 
+        private static readonly RaycastHit[] GroundHitBuffer = new RaycastHit[12];
+        private static Material SharedFallbackShadowMaterial;
+
         private Rigidbody _rigidbody;
         private GameObject _owner;
         private Vector3 _baseScale;
@@ -27,8 +30,8 @@ namespace PlayerBlock
             _owner = owner;
             _rigidbody = GetComponent<Rigidbody>();
             _rigidbody.useGravity = false;
-            _rigidbody.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-            _rigidbody.interpolation = RigidbodyInterpolation.Interpolate;
+            _rigidbody.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
+            _rigidbody.interpolation = RigidbodyInterpolation.None;
             _rigidbody.linearVelocity = velocity;
             CombatVfxUtility.ConfigureTrail(gameObject, 0.18f, Mathf.Max(0.05f, transform.localScale.x * 0.42f));
 
@@ -121,8 +124,8 @@ namespace PlayerBlock
             cloneRigidbody.mass = 4f;
             cloneRigidbody.linearDamping = 0.8f;
             cloneRigidbody.angularDamping = 6f;
-            cloneRigidbody.interpolation = RigidbodyInterpolation.Interpolate;
-            cloneRigidbody.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+            cloneRigidbody.interpolation = RigidbodyInterpolation.None;
+            cloneRigidbody.collisionDetectionMode = CollisionDetectionMode.Discrete;
             cloneRigidbody.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
 
             var material = CreateShadowMaterial();
@@ -151,14 +154,14 @@ namespace PlayerBlock
             }
 
             var rayStart = position + Vector3.up * 2f;
-            var hits = Physics.RaycastAll(rayStart, Vector3.down, 7f);
+            var hitCount = Physics.RaycastNonAlloc(rayStart, Vector3.down, GroundHitBuffer, 7f);
             var bestDistance = float.PositiveInfinity;
             var bestPoint = position;
             var foundGround = false;
 
-            for (var i = 0; i < hits.Length; i++)
+            for (var i = 0; i < hitCount; i++)
             {
-                var hit = hits[i];
+                var hit = GroundHitBuffer[i];
                 if (hit.collider == null
                     || hit.collider.GetComponentInParent<GiantBossController>() != null
                     || hit.collider.GetComponentInParent<BlockPlayerController>() != null
@@ -196,6 +199,11 @@ namespace PlayerBlock
 
         private static Material CreateShadowMaterial()
         {
+            if (SharedFallbackShadowMaterial != null)
+            {
+                return SharedFallbackShadowMaterial;
+            }
+
             var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
             var shadowColor = new Color(0.005f, 0.005f, 0.006f, 1f);
             var material = new Material(shader)
@@ -214,7 +222,8 @@ namespace PlayerBlock
                 material.SetColor("_EmissionColor", new Color(0.015f, 0.01f, 0.025f));
             }
 
-            return material;
+            SharedFallbackShadowMaterial = material;
+            return SharedFallbackShadowMaterial;
         }
     }
 }

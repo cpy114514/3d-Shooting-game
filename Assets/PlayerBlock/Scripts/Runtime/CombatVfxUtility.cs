@@ -5,7 +5,15 @@ namespace PlayerBlock
 {
     public static class CombatVfxUtility
     {
+        private const int MaxActiveBurstPieces = 32;
+        private const int MaxActiveFlashLights = 0;
+        private const int MaxActiveDamageNumbers = 16;
+
         private static readonly Dictionary<string, Material> MaterialCache = new();
+        private static int ActiveBurstPieces;
+        private static int ActiveFlashLights;
+        private static int ActiveDamageNumbers;
+        private static Font DamageNumberFont;
 
         public static Material GetBlackBulletMaterial()
         {
@@ -105,12 +113,18 @@ namespace PlayerBlock
 
         public static void SpawnDamageNumber(Vector3 position, float amount, Color color)
         {
+            if (ActiveDamageNumbers >= MaxActiveDamageNumbers)
+            {
+                return;
+            }
+
             var numberObject = new GameObject("DamageNumber");
             numberObject.transform.position = position;
 
             var textMesh = numberObject.AddComponent<TextMesh>();
             textMesh.text = Mathf.CeilToInt(Mathf.Max(0f, amount)).ToString();
-            textMesh.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            DamageNumberFont ??= Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            textMesh.font = DamageNumberFont;
             textMesh.fontSize = 84;
             textMesh.characterSize = 0.08f;
             textMesh.anchor = TextAnchor.MiddleCenter;
@@ -125,6 +139,8 @@ namespace PlayerBlock
 
             var popup = numberObject.AddComponent<DamageNumberPopup>();
             popup.Initialize(color, amount);
+            ActiveDamageNumbers++;
+            numberObject.AddComponent<CombatVfxCounter>().Initialize(CounterKind.DamageNumber);
         }
 
         private static void SpawnBurst(
@@ -141,6 +157,14 @@ namespace PlayerBlock
         {
             var baseDirection = direction.sqrMagnitude > 0.0001f ? direction.normalized : Vector3.up;
             SpawnFlashLight(position, material != null ? material.color : Color.white, scale, lightIntensity);
+
+            var availablePieces = Mathf.Max(0, MaxActiveBurstPieces - ActiveBurstPieces);
+            if (availablePieces <= 0)
+            {
+                return;
+            }
+
+            pieceCount = Mathf.Min(pieceCount, availablePieces);
 
             for (var i = 0; i < pieceCount; i++)
             {
@@ -163,24 +187,21 @@ namespace PlayerBlock
                     renderer.sharedMaterial = material;
                 }
 
-                var rigidbody = shard.AddComponent<Rigidbody>();
-                rigidbody.useGravity = true;
-                rigidbody.mass = 0.03f;
-                rigidbody.linearDamping = 0.15f;
-                rigidbody.angularDamping = 0.2f;
-                rigidbody.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-                rigidbody.interpolation = RigidbodyInterpolation.Interpolate;
-
                 var burstDirection = (baseDirection + Random.insideUnitSphere * 0.85f).normalized;
-                rigidbody.linearVelocity = burstDirection * Random.Range(minSpeed, maxSpeed) + Vector3.up * Random.Range(0.4f, 1.5f);
-                rigidbody.angularVelocity = Random.insideUnitSphere * Random.Range(8f, 16f);
-                Object.Destroy(shard, Random.Range(minLifetime, maxLifetime));
+                var velocity = burstDirection * Random.Range(minSpeed, maxSpeed) + Vector3.up * Random.Range(0.4f, 1.5f);
+                var angularVelocity = Random.insideUnitSphere * Random.Range(220f, 520f);
+                ActiveBurstPieces++;
+                shard.AddComponent<CombatVfxLifetime>().Initialize(
+                    Random.Range(minLifetime, maxLifetime),
+                    isLight: false,
+                    velocity,
+                    angularVelocity);
             }
         }
 
         private static void SpawnFlashLight(Vector3 position, Color color, float scale, float intensity)
         {
-            if (intensity <= 0f)
+            if (intensity <= 0f || ActiveFlashLights >= MaxActiveFlashLights)
             {
                 return;
             }
@@ -192,7 +213,8 @@ namespace PlayerBlock
             light.color = color;
             light.range = Mathf.Max(1.25f, scale * 6.5f);
             light.intensity = intensity;
-            Object.Destroy(lightObject, 0.11f);
+            ActiveFlashLights++;
+            lightObject.AddComponent<CombatVfxLifetime>().Initialize(0.11f, isLight: true);
         }
 
         private static Material GetOrCreateMaterial(string key, Color color, Color? emissionColor)
@@ -240,6 +262,98 @@ namespace PlayerBlock
         {
             var c = (Color32)color;
             return $"{c.r:D3}-{c.g:D3}-{c.b:D3}-{c.a:D3}";
+        }
+
+        private sealed class CombatVfxLifetime : MonoBehaviour
+        {
+            private float _lifeTime;
+            private Vector3 _velocity;
+            private Vector3 _angularVelocity;
+            private bool _isLight;
+            private bool _released;
+
+            public void Initialize(float lifeTime, bool isLight)
+            {
+                Initialize(lifeTime, isLight, Vector3.zero, Vector3.zero);
+            }
+
+            public void Initialize(float lifeTime, bool isLight, Vector3 velocity, Vector3 angularVelocity)
+            {
+                _lifeTime = Mathf.Max(0.01f, lifeTime);
+                _isLight = isLight;
+                _velocity = velocity;
+                _angularVelocity = angularVelocity;
+            }
+
+            private void Update()
+            {
+                if (!_isLight)
+                {
+                    _velocity += Physics.gravity * (0.35f * Time.deltaTime);
+                    transform.position += _velocity * Time.deltaTime;
+                    transform.Rotate(_angularVelocity * Time.deltaTime, Space.Self);
+                }
+
+                _lifeTime -= Time.deltaTime;
+                if (_lifeTime <= 0f)
+                {
+                    Release();
+                    Destroy(gameObject);
+                }
+            }
+
+            private void OnDestroy()
+            {
+                Release();
+            }
+
+            private void Release()
+            {
+                if (_released)
+                {
+                    return;
+                }
+
+                _released = true;
+                if (_isLight)
+                {
+                    ActiveFlashLights = Mathf.Max(0, ActiveFlashLights - 1);
+                }
+                else
+                {
+                    ActiveBurstPieces = Mathf.Max(0, ActiveBurstPieces - 1);
+                }
+            }
+        }
+
+        private enum CounterKind
+        {
+            DamageNumber
+        }
+
+        private sealed class CombatVfxCounter : MonoBehaviour
+        {
+            private CounterKind _kind;
+            private bool _released;
+
+            public void Initialize(CounterKind kind)
+            {
+                _kind = kind;
+            }
+
+            private void OnDestroy()
+            {
+                if (_released)
+                {
+                    return;
+                }
+
+                _released = true;
+                if (_kind == CounterKind.DamageNumber)
+                {
+                    ActiveDamageNumbers = Mathf.Max(0, ActiveDamageNumbers - 1);
+                }
+            }
         }
     }
 }

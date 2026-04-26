@@ -16,6 +16,8 @@ namespace PlayerBlock
         [SerializeField] private Text bossLabel;
         [SerializeField] private Text phaseLabel;
         [SerializeField] private Text selectedShadowLabel;
+        [SerializeField] private Text statusMessageLabel;
+        [SerializeField] private Image statusMessagePanel;
         [SerializeField] private Image meleeShadowSlot;
         [SerializeField] private Image rangedShadowSlot;
         [SerializeField] private Image shieldShadowSlot;
@@ -122,6 +124,21 @@ namespace PlayerBlock
             }
         }
 
+        public void SetStatusMessage(string message, bool visible)
+        {
+            EnsureUi();
+            if (statusMessagePanel != null)
+            {
+                statusMessagePanel.gameObject.SetActive(visible);
+            }
+
+            if (statusMessageLabel != null)
+            {
+                statusMessageLabel.gameObject.SetActive(visible);
+                statusMessageLabel.text = message;
+            }
+        }
+
         public void SetSelectedShadowInventory(CombatSelectionKind selectedKind, float meleeCost, float rangedCost, float shieldCost)
         {
             EnsureUi();
@@ -206,6 +223,8 @@ namespace PlayerBlock
                 && playerEnergyFill != null
                 && bossFill != null
                 && selectedShadowLabel != null
+                && statusMessageLabel != null
+                && statusMessagePanel != null
                 && meleeShadowSlot != null
                 && rangedShadowSlot != null
                 && shieldShadowSlot != null
@@ -257,6 +276,11 @@ namespace PlayerBlock
             if (selectedShadowLabel == null || meleeShadowSlot == null || rangedShadowSlot == null || shieldShadowSlot == null || emptyHandsSlot == null)
             {
                 BuildShadowSelectionPanel(transform);
+            }
+
+            if (statusMessageLabel == null || statusMessagePanel == null)
+            {
+                BuildStatusMessage(transform);
             }
 
             HideLegacyCrosshairCooldownPanel();
@@ -423,6 +447,17 @@ namespace PlayerBlock
             SetSelectedShadowInventory(CombatSelectionKind.Melee, 1f, 2f, 2f);
         }
 
+        private void BuildStatusMessage(Transform parent)
+        {
+            statusMessagePanel = CreateImage(parent, "StatusMessagePanel", new Color(0.02f, 0.02f, 0.025f, 0.78f));
+            SetRect(statusMessagePanel.rectTransform, new Vector2(0f, -220f), new Vector2(520f, 56f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+
+            statusMessageLabel = CreateText(statusMessagePanel.transform, "StatusMessageLabel", string.Empty, 28, TextAnchor.MiddleCenter);
+            SetRect(statusMessageLabel.rectTransform, Vector2.zero, new Vector2(480f, 40f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
+            statusMessageLabel.color = new Color(1f, 0.94f, 0.82f, 1f);
+            SetStatusMessage(string.Empty, false);
+        }
+
         private void BuildShadowSlot(Transform parent, CombatSelectionKind kind, Vector2 position)
         {
             string slotName;
@@ -560,6 +595,8 @@ namespace PlayerBlock
             bossLabel = bossLabel != null ? bossLabel : FindText("BossHealthPanel/BossLabel");
             phaseLabel = phaseLabel != null ? phaseLabel : FindText("BossHealthPanel/BossPhaseLabel");
             selectedShadowLabel = selectedShadowLabel != null ? selectedShadowLabel : FindText("ShadowSelectionPanel/SelectedShadowLabel");
+            statusMessageLabel = statusMessageLabel != null ? statusMessageLabel : FindText("StatusMessagePanel/StatusMessageLabel");
+            statusMessagePanel = statusMessagePanel != null ? statusMessagePanel : FindImage("StatusMessagePanel");
             meleeShadowSlot = meleeShadowSlot != null ? meleeShadowSlot : FindImage("ShadowSelectionPanel/MeleeShadowSlot");
             rangedShadowSlot = rangedShadowSlot != null ? rangedShadowSlot : FindImage("ShadowSelectionPanel/RangedShadowSlot");
             shieldShadowSlot = shieldShadowSlot != null ? shieldShadowSlot : FindImage("ShadowSelectionPanel/ShieldShadowSlot");

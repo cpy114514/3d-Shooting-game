@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace PlayerBlock
@@ -43,6 +44,11 @@ namespace PlayerBlock
         [SerializeField] private float rangedAttackAnimationDuration = 0.22f;
         [SerializeField] private float crushHorizontalRadius = 1.15f;
         [SerializeField] private float crushHeightTolerance = 0.25f;
+
+        private static readonly List<ShadowCloneTarget> ActiveShadows = new List<ShadowCloneTarget>(32);
+        private static readonly Collider[] MeleeHitBuffer = new Collider[24];
+        private static Material SharedShadowMaterial;
+        private static Material SharedShardMaterial;
 
         private Transform _body;
         private Transform _head;
@@ -90,6 +96,7 @@ namespace PlayerBlock
         public bool IsShieldBroken => _shieldBroken;
 
         public bool IsAlive => !_isDead && _health > 0f;
+        public static IReadOnlyList<ShadowCloneTarget> ActiveInstances => ActiveShadows;
 
         public Vector3 GetShieldBlockPoint()
         {
@@ -151,6 +158,19 @@ namespace PlayerBlock
             }
         }
 
+        private void OnEnable()
+        {
+            if (!ActiveShadows.Contains(this))
+            {
+                ActiveShadows.Add(this);
+            }
+        }
+
+        private void OnDisable()
+        {
+            ActiveShadows.Remove(this);
+        }
+
         private void Awake()
         {
             _health = maxHealth;
@@ -161,6 +181,8 @@ namespace PlayerBlock
             if (_rigidbody != null)
             {
                 _rigidbody.useGravity = true;
+                _rigidbody.interpolation = RigidbodyInterpolation.None;
+                _rigidbody.collisionDetectionMode = CollisionDetectionMode.Discrete;
                 _rigidbody.constraints |= RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
             }
 
@@ -247,33 +269,33 @@ namespace PlayerBlock
                 return;
             }
 
-            var boss = FindBossToAttack();
-            if (boss != null)
+            var target = ShadowCombatTargetUtility.FindClosestTarget(transform.position);
+            if (target != null)
             {
-                FaceBoss(boss.transform);
+                FaceTarget(target.TargetTransform);
                 if (_kind == ShadowCloneKind.Melee)
                 {
-                    UpdateMeleeCombat(boss);
+                    UpdateMeleeCombat(target);
                 }
                 else
                 {
-                    MoveAroundBoss(boss.transform);
+                    MoveAroundTarget(target.TargetTransform);
                     if (_attackCooldownTimer <= 0f && _kind == ShadowCloneKind.Ranged)
                     {
-                        var sqrDistance = (boss.transform.position - transform.position).sqrMagnitude;
+                        var sqrDistance = (target.TargetTransform.position - transform.position).sqrMagnitude;
                         // Ranged shadows keep their distance, then fire once the target is inside their attack window.
                         if (sqrDistance <= rangedAttackRange * rangedAttackRange)
                         {
                             _attackCooldownTimer = rangedAttackCooldown;
                             _attackAnimationTimer = rangedAttackAnimationDuration;
                             _hasHitThisSwing = false;
-                            FireRangedShot(boss);
+                            FireRangedShot(target);
                             _hasHitThisSwing = true;
                         }
                     }
                 }
             }
-            else if (_kind == ShadowCloneKind.Melee)
+            else
             {
                 StopHorizontalMovement();
                 _meleeState = MeleeState.Ready;
@@ -282,33 +304,9 @@ namespace PlayerBlock
             UpdateAttackVisual();
         }
 
-        private GiantBossController FindBossToAttack()
+        private void UpdateMeleeCombat(IShadowCombatTarget target)
         {
-            GiantBossController bestBoss = null;
-            var bestSqrDistance = float.PositiveInfinity;
-            var bosses = FindObjectsByType<GiantBossController>(FindObjectsSortMode.None);
-            for (var i = 0; i < bosses.Length; i++)
-            {
-                var boss = bosses[i];
-                if (boss == null || boss.Health <= 0f)
-                {
-                    continue;
-                }
-
-                var sqrDistance = (boss.transform.position - transform.position).sqrMagnitude;
-                if (sqrDistance <= bestSqrDistance)
-                {
-                    bestSqrDistance = sqrDistance;
-                    bestBoss = boss;
-                }
-            }
-
-            return bestBoss;
-        }
-
-        private void UpdateMeleeCombat(GiantBossController boss)
-        {
-            if (boss == null)
+            if (target == null || !target.IsTargetAlive)
             {
                 StopHorizontalMovement();
                 _meleeState = MeleeState.Ready;
@@ -326,7 +324,7 @@ namespace PlayerBlock
                     return;
                 case MeleeState.Strike:
                     StopHorizontalMovement();
-                    TryHitWithHand(boss);
+                    TryHitWithHand(target);
                     if (_meleeStateTimer <= 0f)
                     {
                         BeginMeleeRecovery();
@@ -341,7 +339,7 @@ namespace PlayerBlock
                     return;
             }
 
-            var targetPoint = GetMeleeTargetPoint(boss);
+            var targetPoint = GetMeleeTargetPoint(target);
             var flatOffset = targetPoint - transform.position;
             flatOffset.y = 0f;
             var distanceToTarget = flatOffset.magnitude;
@@ -359,12 +357,14 @@ namespace PlayerBlock
             }
         }
 
-        private Vector3 GetMeleeTargetPoint(GiantBossController boss)
+        private Vector3 GetMeleeTargetPoint(IShadowCombatTarget target)
         {
             var referencePoint = transform.position + Vector3.up * 1.05f + transform.forward * 0.25f;
-            return TryGetClosestBossPoint(boss, referencePoint, out var closestPoint)
+            return target != null && target.TryGetClosestPoint(referencePoint, out var closestPoint)
                 ? closestPoint
-                : boss.transform.position + Vector3.up * 1.1f;
+                : target != null
+                    ? target.GetAimPoint()
+                    : transform.position + transform.forward * meleeAttackStartDistance;
         }
 
         private void BeginMeleeWindup()
@@ -390,14 +390,14 @@ namespace PlayerBlock
             _attackAnimationTimer = 0f;
         }
 
-        private void MoveAroundBoss(Transform boss)
+        private void MoveAroundTarget(Transform targetTransform)
         {
-            if (_rigidbody == null || boss == null)
+            if (_rigidbody == null || targetTransform == null)
             {
                 return;
             }
 
-            var offset = boss.position - transform.position;
+            var offset = targetTransform.position - transform.position;
             offset.y = 0f;
             if (offset.sqrMagnitude < 0.001f)
             {
@@ -494,7 +494,7 @@ namespace PlayerBlock
             }
         }
 
-        private void TryHitWithHand(GiantBossController targetBoss)
+        private void TryHitWithHand(IShadowCombatTarget target)
         {
             if (_hasHitThisSwing || _meleeState != MeleeState.Strike)
             {
@@ -502,27 +502,40 @@ namespace PlayerBlock
             }
 
             var handPosition = GetRightHandPosition();
-            if (TryDamageBossFromDirectHandOverlap(targetBoss, handPosition))
+            if (TryDamageTargetFromDirectHandOverlap(target, handPosition))
             {
                 return;
             }
 
-            if (TryConfirmMeleeHitAgainstBoss(targetBoss, handPosition, out var impactPoint))
+            if (TryConfirmMeleeHit(target, handPosition, out var impactPoint))
             {
-                ApplyMeleeDamage(targetBoss, impactPoint);
+                ApplyMeleeDamage(target, impactPoint);
             }
         }
 
-        private bool TryDamageBossFromDirectHandOverlap(GiantBossController targetBoss, Vector3 handPosition)
+        private bool TryDamageTargetFromDirectHandOverlap(IShadowCombatTarget target, Vector3 handPosition)
         {
-            var colliders = Physics.OverlapSphere(handPosition, handHitRadius, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide);
-            for (var i = 0; i < colliders.Length; i++)
+            var hitCount = Physics.OverlapSphereNonAlloc(
+                handPosition,
+                handHitRadius,
+                MeleeHitBuffer,
+                Physics.DefaultRaycastLayers,
+                QueryTriggerInteraction.Collide);
+
+            for (var i = 0; i < hitCount; i++)
             {
-                var boss = colliders[i].GetComponentInParent<GiantBossController>();
-                if (boss != null && boss == targetBoss && boss.Health > 0f)
+                var collider = MeleeHitBuffer[i];
+                if (collider != null && collider.GetComponentInParent<ShadowMinionShield>() != null)
                 {
-                    var impactPoint = colliders[i].ClosestPoint(handPosition);
-                    ApplyMeleeDamage(boss, impactPoint);
+                    CombatVfxUtility.SpawnImpactBurst(collider.bounds.center, transform.forward, new Color(0.08f, 0.05f, 0.12f, 1f), 0.18f, 5);
+                    return true;
+                }
+
+                var hitTarget = ShadowCombatTargetUtility.ResolveTarget(collider);
+                if (hitTarget != null && ReferenceEquals(hitTarget, target) && hitTarget.IsTargetAlive)
+                {
+                    var impactPoint = collider.ClosestPoint(handPosition);
+                    ApplyMeleeDamage(hitTarget, impactPoint);
                     return true;
                 }
             }
@@ -530,17 +543,27 @@ namespace PlayerBlock
             return false;
         }
 
-        private bool TryConfirmMeleeHitAgainstBoss(GiantBossController boss, Vector3 handPosition, out Vector3 impactPoint)
+        private bool TryConfirmMeleeHit(IShadowCombatTarget target, Vector3 handPosition, out Vector3 impactPoint)
         {
             impactPoint = handPosition;
-            if (boss == null || boss.Health <= 0f)
+            if (target == null || !target.IsTargetAlive)
             {
                 return false;
             }
 
-            if (!TryGetClosestBossPoint(boss, handPosition, out impactPoint))
+            if (!target.TryGetClosestPoint(handPosition, out impactPoint))
             {
-                impactPoint = boss.transform.position + Vector3.up * 1.4f;
+                impactPoint = target.GetAimPoint();
+            }
+
+            if (target is ShadowMinionController minion && minion.HasShield)
+            {
+                var flatFromShadowToTarget = minion.transform.position - transform.position;
+                flatFromShadowToTarget.y = 0f;
+                if (flatFromShadowToTarget.sqrMagnitude > 0.001f && Vector3.Dot(minion.transform.forward, flatFromShadowToTarget.normalized) > 0.15f)
+                {
+                    return false;
+                }
             }
 
             var handToBoss = impactPoint - handPosition;
@@ -571,35 +594,7 @@ namespace PlayerBlock
             return Vector3.Dot(transform.forward, flatFromShadow.normalized) > 0.2f;
         }
 
-        private static bool TryGetClosestBossPoint(GiantBossController boss, Vector3 handPosition, out Vector3 closestPoint)
-        {
-            closestPoint = handPosition;
-            var colliders = boss.GetComponentsInChildren<Collider>();
-            var bestDistance = float.PositiveInfinity;
-            var found = false;
-
-            for (var i = 0; i < colliders.Length; i++)
-            {
-                var collider = colliders[i];
-                if (collider == null || !collider.enabled)
-                {
-                    continue;
-                }
-
-                var point = collider.ClosestPoint(handPosition);
-                var sqrDistance = (point - handPosition).sqrMagnitude;
-                if (sqrDistance < bestDistance)
-                {
-                    bestDistance = sqrDistance;
-                    closestPoint = point;
-                    found = true;
-                }
-            }
-
-            return found;
-        }
-
-        private void ApplyMeleeDamage(GiantBossController boss, Vector3 impactPoint)
+        private void ApplyMeleeDamage(IShadowCombatTarget target, Vector3 impactPoint)
         {
             if (_hasHitThisSwing)
             {
@@ -607,14 +602,14 @@ namespace PlayerBlock
             }
 
             _hasHitThisSwing = true;
-            boss.TakeDamage(meleeAttackDamage);
+            target.ReceiveShadowDamage(meleeAttackDamage);
             CombatVfxUtility.SpawnImpactBurst(impactPoint, transform.forward, new Color(0.09f, 0.09f, 0.11f, 1f), 0.22f, 5);
         }
 
-        private void FireRangedShot(GiantBossController boss)
+        private void FireRangedShot(IShadowCombatTarget target)
         {
             var spawnPosition = GetRightHandPosition();
-            var targetPosition = boss.transform.position + Vector3.up * 1.5f;
+            var targetPosition = target != null ? target.GetAimPoint() : transform.position + transform.forward * rangedAttackRange;
             var direction = (targetPosition - spawnPosition).normalized;
             if (direction.sqrMagnitude < 0.001f)
             {
@@ -662,8 +657,8 @@ namespace PlayerBlock
 
         private bool TryCrushByBoss()
         {
-            var bosses = FindObjectsByType<GiantBossController>(FindObjectsSortMode.None);
-            for (var i = 0; i < bosses.Length; i++)
+            var bosses = GiantBossController.ActiveInstances;
+            for (var i = 0; i < bosses.Count; i++)
             {
                 var boss = bosses[i];
                 if (boss == null || boss.Health <= 0f)
@@ -678,7 +673,7 @@ namespace PlayerBlock
                     continue;
                 }
 
-                var bossController = boss.GetComponent<CharacterController>();
+                var bossController = boss.Controller;
                 var bossBottom = bossController != null
                     ? boss.transform.position.y + bossController.center.y - bossController.height * 0.5f
                     : boss.transform.position.y;
@@ -693,9 +688,14 @@ namespace PlayerBlock
             return false;
         }
 
-        private void FaceBoss(Transform boss)
+        private void FaceTarget(Transform targetTransform)
         {
-            var direction = boss.position - transform.position;
+            if (targetTransform == null)
+            {
+                return;
+            }
+
+            var direction = targetTransform.position - transform.position;
             direction.y = 0f;
             if (direction.sqrMagnitude < 0.001f)
             {
@@ -808,57 +808,26 @@ namespace PlayerBlock
 
         private void OnDestroy()
         {
-            if (_shadowMaterial != null)
-            {
-                Destroy(_shadowMaterial);
-                _shadowMaterial = null;
-            }
+            _shadowMaterial = null;
         }
 
         private void SpawnBreakEffect()
         {
-            var material = GetShardMaterial();
-            var shardOrigins = new[]
-            {
+            CombatVfxUtility.SpawnImpactBurst(
                 transform.position + Vector3.up * 1.05f,
-                transform.position + Vector3.up * 1.82f,
-                transform.position + transform.right * -0.66f + Vector3.up * 1.1f,
-                transform.position + transform.right * 0.66f + Vector3.up * 1.1f,
-                transform.position + transform.right * -0.24f + Vector3.up * 0.34f,
-                transform.position + transform.right * 0.24f + Vector3.up * 0.34f,
-            };
-
-            var shardCount = 16;
-            for (var i = 0; i < shardCount; i++)
-            {
-                var shard = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                shard.name = "ShadowShard";
-                var origin = shardOrigins[i % shardOrigins.Length];
-                shard.transform.position = origin + Random.insideUnitSphere * 0.12f;
-                shard.transform.rotation = Random.rotation;
-                shard.transform.localScale = Vector3.one * Random.Range(0.08f, 0.22f);
-
-                var renderer = shard.GetComponent<Renderer>();
-                if (renderer != null)
-                {
-                    renderer.sharedMaterial = material;
-                }
-
-                var rigidbody = shard.AddComponent<Rigidbody>();
-                rigidbody.mass = 0.12f;
-                rigidbody.useGravity = true;
-                rigidbody.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-                rigidbody.linearVelocity = new Vector3(
-                    Random.Range(-0.55f, 0.55f),
-                    Random.Range(-0.25f, 0.15f),
-                    Random.Range(-0.55f, 0.55f));
-                rigidbody.angularVelocity = Random.insideUnitSphere * Random.Range(1.2f, 3.2f);
-                Destroy(shard, Random.Range(1.15f, 1.8f));
-            }
+                Vector3.up,
+                new Color(0.015f, 0.015f, 0.018f, 1f),
+                0.32f,
+                8);
         }
 
         private static Material GetShardMaterial()
         {
+            if (SharedShardMaterial != null)
+            {
+                return SharedShardMaterial;
+            }
+
             var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
             var shardColor = new Color(0.003f, 0.003f, 0.004f, 1f);
             var material = new Material(shader)
@@ -877,11 +846,17 @@ namespace PlayerBlock
                 material.SetColor("_EmissionColor", new Color(0.012f, 0.008f, 0.02f));
             }
 
-            return material;
+            SharedShardMaterial = material;
+            return SharedShardMaterial;
         }
 
         private static Material CreateShadowMaterial()
         {
+            if (SharedShadowMaterial != null)
+            {
+                return SharedShadowMaterial;
+            }
+
             var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
             var shadowColor = new Color(0.005f, 0.005f, 0.006f, 1f);
             var material = new Material(shader)
@@ -900,7 +875,8 @@ namespace PlayerBlock
                 material.SetColor("_EmissionColor", new Color(0.015f, 0.01f, 0.025f));
             }
 
-            return material;
+            SharedShadowMaterial = material;
+            return SharedShadowMaterial;
         }
     }
 }

@@ -111,8 +111,8 @@ namespace PlayerBlock.Editor
             rigidbody.useGravity = true;
             rigidbody.linearDamping = 0.8f;
             rigidbody.angularDamping = 6f;
-            rigidbody.interpolation = RigidbodyInterpolation.Interpolate;
-            rigidbody.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+            rigidbody.interpolation = RigidbodyInterpolation.None;
+            rigidbody.collisionDetectionMode = CollisionDetectionMode.Discrete;
             rigidbody.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
 
             var target = root.AddComponent<ShadowCloneTarget>();

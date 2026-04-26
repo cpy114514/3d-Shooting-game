@@ -357,9 +357,12 @@ MonoBehaviour:
   armSlamCooldown: 1.4
   sweepWindup: 0.75
   sweepRecover: 0.7
-  sweepRange: 3.35
-  sweepRadius: 2.45
-  sweepForwardDot: -0.15
+  sweepRange: 4.65
+  sweepRadius: 3.25
+  sweepForwardDot: -0.35
+  sweepCenterHeight: 0.58
+  sweepForwardOffset: 1.2
+  sweepHitMaxHeight: 1.45
   jumpSlamRange: 12
   jumpSlamRadius: 4.5
   jumpWindup: 0.55

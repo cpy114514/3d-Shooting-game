@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
@@ -43,6 +44,7 @@ namespace PlayerBlock
         [SerializeField] private float punchCooldown = 0.5f;
         [SerializeField] private float punchAnimationDuration = 0.46f;
         [SerializeField] private float shootAnimationDuration = 0.22f;
+        [SerializeField] private float shootReleaseTimeNormalized = 0.42f;
         [SerializeField] private float aimArmSharpness = 24f;
 
         [Header("Camera")]
@@ -68,7 +70,11 @@ namespace PlayerBlock
         [SerializeField] private float walkAnimationSpeed = 1.85f;
         [SerializeField] private float walkBobHeight = 0.1f;
 
+        private static readonly List<BlockPlayerController> ActivePlayers = new List<BlockPlayerController>(1);
+        private static readonly Collider[] PunchHitBuffer = new Collider[16];
+
         private CharacterController _controller;
+        private Transform _rightArm;
         private Vector3 _horizontalVelocity;
         private Vector3 _verticalVelocity;
         private Vector3 _dashVelocity;
@@ -90,6 +96,8 @@ namespace PlayerBlock
         private MeleeComboAttack _currentMeleeCombo;
         private int _nextMeleeComboIndex;
         private bool _meleeComboHasHit;
+        private bool _pendingShadowShot;
+        private ShadowCloneKind _pendingShadowShotKind = ShadowCloneKind.Melee;
         private Vector3 _cameraFollowOffset;
         private bool _isDashing;
         private bool _wasGrounded;
@@ -99,6 +107,7 @@ namespace PlayerBlock
         public float MaxHealth => maxHealth;
         public float ShadowEnergy => _shadowEnergy;
         public float MaxShadowEnergy => maxShadowEnergy;
+        public static IReadOnlyList<BlockPlayerController> ActiveInstances => ActivePlayers;
 
         public void TakeDamage(float amount)
         {
@@ -136,6 +145,19 @@ namespace PlayerBlock
             HeavyPunch
         }
 
+        private void OnEnable()
+        {
+            if (!ActivePlayers.Contains(this))
+            {
+                ActivePlayers.Add(this);
+            }
+        }
+
+        private void OnDisable()
+        {
+            ActivePlayers.Remove(this);
+        }
+
         private void Awake()
         {
             _controller = GetComponent<CharacterController>();
@@ -163,6 +185,7 @@ namespace PlayerBlock
             _health = maxHealth;
             _shadowEnergy = maxShadowEnergy;
             CacheBodyPartPoses();
+            _rightArm = visualRoot != null ? visualRoot.Find("RightArm") : null;
         }
 
         private void Start()
@@ -262,9 +285,9 @@ namespace PlayerBlock
 
             if (FirePressed())
             {
-                if (CanFireSelectedShadow())
+                if (CanFireSelectedShadow() && !_pendingShadowShot)
                 {
-                    FireShadowBullet();
+                    BeginShadowBulletFire();
                 }
                 else if (_punchCooldownTimer <= 0f)
                 {
@@ -272,6 +295,7 @@ namespace PlayerBlock
                 }
             }
 
+            TryReleaseShadowBullet();
             TryResolveMeleeComboHit();
 
             if (_isDashing)
@@ -424,11 +448,33 @@ namespace PlayerBlock
             }
         }
 
-        private void FireShadowBullet()
+        private void BeginShadowBulletFire()
         {
             SpendSelectedShadowEnergy();
             _shootAnimationTimer = shootAnimationDuration;
+            _pendingShadowShot = true;
+            _pendingShadowShotKind = GetSelectedCloneKind();
+        }
 
+        private void TryReleaseShadowBullet()
+        {
+            if (!_pendingShadowShot)
+            {
+                return;
+            }
+
+            var elapsed = GetShootAnimationElapsed01();
+            if (elapsed < shootReleaseTimeNormalized && _shootAnimationTimer > 0f)
+            {
+                return;
+            }
+
+            _pendingShadowShot = false;
+            FireShadowBullet(_pendingShadowShotKind);
+        }
+
+        private void FireShadowBullet(ShadowCloneKind cloneKind)
+        {
             var fireDirection = playerCamera != null ? playerCamera.transform.forward : GetCameraForward();
             fireDirection.Normalize();
 
@@ -453,7 +499,7 @@ namespace PlayerBlock
 
             projectile.AddComponent<Rigidbody>();
             var shadowProjectile = projectile.AddComponent<ShadowProjectile>();
-            shadowProjectile.SetCloneKind(GetSelectedCloneKind());
+            shadowProjectile.SetCloneKind(cloneKind);
             shadowProjectile.Launch(fireDirection * shadowBulletSpeed, gameObject);
 
             CombatVfxUtility.ConfigureTrail(projectile, 0.22f, shadowBulletRadius * 1.9f);
@@ -484,14 +530,35 @@ namespace PlayerBlock
 
             _meleeComboHasHit = true;
             var punchCenter = GetMeleeComboHitCenter();
-            var colliders = Physics.OverlapSphere(punchCenter, punchRadius, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide);
-            for (var i = 0; i < colliders.Length; i++)
+            var hitCount = Physics.OverlapSphereNonAlloc(
+                punchCenter,
+                punchRadius,
+                PunchHitBuffer,
+                Physics.DefaultRaycastLayers,
+                QueryTriggerInteraction.Collide);
+
+            for (var i = 0; i < hitCount; i++)
             {
-                var boss = colliders[i].GetComponentInParent<GiantBossController>();
+                var boss = PunchHitBuffer[i] != null ? PunchHitBuffer[i].GetComponentInParent<GiantBossController>() : null;
                 if (boss != null && boss.Health > 0f)
                 {
                     boss.TakeDamage(punchDamage);
                     CombatVfxUtility.SpawnImpactBurst(punchCenter, GetAimDirection(), new Color(0.08f, 0.08f, 0.1f, 1f), 0.26f, 6);
+                    return;
+                }
+
+                var minion = PunchHitBuffer[i] != null ? PunchHitBuffer[i].GetComponentInParent<ShadowMinionController>() : null;
+                if (minion != null && minion.IsAlive)
+                {
+                    var shield = PunchHitBuffer[i] != null ? PunchHitBuffer[i].GetComponentInParent<ShadowMinionShield>() : null;
+                    if (shield != null)
+                    {
+                        CombatVfxUtility.SpawnImpactBurst(PunchHitBuffer[i].bounds.center, GetAimDirection(), new Color(0.08f, 0.06f, 0.1f, 1f), 0.24f, 5);
+                        return;
+                    }
+
+                    minion.TakeDamage(punchDamage);
+                    CombatVfxUtility.SpawnImpactBurst(punchCenter, GetAimDirection(), new Color(0.08f, 0.06f, 0.1f, 1f), 0.24f, 5);
                     return;
                 }
             }
@@ -521,27 +588,41 @@ namespace PlayerBlock
                 return;
             }
 
-            var amount = Mathf.Clamp01(_shootAnimationTimer / shootAnimationDuration);
-            var kick = Mathf.Sin(amount * Mathf.PI);
+            var elapsed = GetShootAnimationElapsed01();
+            var raise = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / Mathf.Max(0.01f, shootReleaseTimeNormalized)));
+            var recoil = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((elapsed - shootReleaseTimeNormalized) / 0.16f));
+            var settle = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((elapsed - 0.72f) / 0.28f));
+            var kick = Mathf.Clamp01(recoil - settle);
 
             switch (bodyPartName)
             {
                 case "Body":
-                    targetRotation *= Quaternion.Euler(-kick * 5f, 0f, kick * 2f);
+                    targetRotation *= Quaternion.Euler(-raise * 6f - kick * 4f, 0f, kick * 3f);
+                    targetPosition += new Vector3(0f, raise * 0.02f, raise * 0.015f + kick * 0.02f);
                     break;
                 case "Head":
-                    targetRotation *= Quaternion.Euler(-kick * 3f, 0f, 0f);
+                    targetRotation *= Quaternion.Euler(-raise * 2f - kick * 4f, 0f, 0f);
                     break;
                 case "LeftArm":
-                    targetRotation *= Quaternion.Euler(-kick * 22f, 0f, -kick * 10f);
-                    targetPosition += new Vector3(0f, 0f, kick * 0.08f);
+                    targetRotation *= Quaternion.Euler(-raise * 18f - kick * 18f, 0f, -raise * 8f - kick * 10f);
+                    targetPosition += new Vector3(0f, raise * 0.03f, raise * 0.03f + kick * 0.07f);
                     break;
                 case "RightArm":
-                    targetRotation = Quaternion.Slerp(targetRotation, GetArmAimRotation(), Mathf.Clamp01(kick * 1.2f));
-                    targetRotation *= Quaternion.Euler(-kick * 8f, 0f, kick * 5f);
-                    targetPosition += new Vector3(0f, 0f, kick * 0.14f);
+                    targetRotation = Quaternion.Slerp(targetRotation, GetArmAimRotation(), Mathf.Clamp01(0.25f + raise * 0.75f));
+                    targetRotation *= Quaternion.Euler(-raise * 24f - kick * 10f, 0f, raise * 6f + kick * 8f);
+                    targetPosition += new Vector3(0f, raise * 0.1f, raise * 0.08f + kick * 0.12f);
                     break;
             }
+        }
+
+        private float GetShootAnimationElapsed01()
+        {
+            if (shootAnimationDuration <= 0.0001f)
+            {
+                return 1f;
+            }
+
+            return Mathf.Clamp01(1f - (_shootAnimationTimer / shootAnimationDuration));
         }
 
         private void ApplyPunchAnimation(ref Vector3 targetPosition, ref Quaternion targetRotation, string bodyPartName)
@@ -978,13 +1059,9 @@ namespace PlayerBlock
 
         private Vector3 GetRightPalmPosition()
         {
-            if (visualRoot != null)
+            if (_rightArm != null)
             {
-                var rightArm = visualRoot.Find("RightArm");
-                if (rightArm != null)
-                {
-                    return rightArm.TransformPoint(Vector3.down * 0.82f);
-                }
+                return _rightArm.TransformPoint(Vector3.down * 0.82f);
             }
 
             return transform.position + Vector3.up * 1.35f + transform.right * 0.42f;

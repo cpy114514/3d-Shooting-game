@@ -1,10 +1,13 @@
 using System.Collections.Generic;
 using UnityEngine;
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
+#endif
 
 namespace PlayerBlock
 {
     [RequireComponent(typeof(CharacterController))]
-    public sealed class GiantBossController : MonoBehaviour
+    public sealed class GiantBossController : MonoBehaviour, IShadowCombatTarget
     {
         private enum BossState
         {
@@ -19,6 +22,15 @@ namespace PlayerBlock
             ChargeWindup,
             Charging,
             Stunned
+        }
+
+        private enum DefeatSequenceState
+        {
+            None,
+            Rising,
+            Falling,
+            ReadyForClear,
+            Cleared
         }
 
         [Header("Health")]
@@ -43,9 +55,12 @@ namespace PlayerBlock
         [Header("Combo Sweep")]
         [SerializeField] private float sweepWindup = 0.75f;
         [SerializeField] private float sweepRecover = 0.7f;
-        [SerializeField] private float sweepRange = 3.35f;
-        [SerializeField] private float sweepRadius = 2.45f;
-        [SerializeField] private float sweepForwardDot = -0.15f;
+        [SerializeField] private float sweepRange = 4.65f;
+        [SerializeField] private float sweepRadius = 3.25f;
+        [SerializeField] private float sweepForwardDot = -0.35f;
+        [SerializeField] private float sweepCenterHeight = 0.58f;
+        [SerializeField] private float sweepForwardOffset = 1.2f;
+        [SerializeField] private float sweepHitMaxHeight = 1.45f;
 
         [Header("Phase 2 Jump Slam")]
         [SerializeField] private float jumpSlamRange = 12f;
@@ -73,8 +88,20 @@ namespace PlayerBlock
         [SerializeField] private Transform rightLeg;
         [SerializeField] private float visualSharpness = 10f;
 
+        [Header("Defeat")]
+        [SerializeField] private Transform defeatSeal;
+        [SerializeField] private float headRiseHeight = 10.5f;
+        [SerializeField] private float headRiseSpeed = 15f;
+        [SerializeField] private float headDropSpeed = 22f;
+        [SerializeField] private float headLandingHeight = 0.92f;
+        [SerializeField] private float clearInteractDistance = 3.2f;
+
+        private static readonly List<GiantBossController> ActiveBosses = new List<GiantBossController>(2);
+        private static readonly Collider[] TargetHitBuffer = new Collider[64];
+
         private readonly HashSet<Collider> _chargeHits = new HashSet<Collider>();
         private CharacterController _controller;
+        private Collider[] _cachedColliders = System.Array.Empty<Collider>();
         private BossState _state;
         private Transform _target;
         private Vector3 _verticalVelocity;
@@ -99,9 +126,20 @@ namespace PlayerBlock
         private float _walkAmount;
         private int _normalArmSlams;
         private int _phase = 1;
+        private DefeatSequenceState _defeatSequenceState;
+        private GameObject _fallenHeadObject;
+        private Transform _fallenHeadTransform;
+        private Vector3 _headRiseTarget;
+        private Vector3 _headLandTarget;
+        private bool _deathSequenceStarted;
 
         public float Health => _health;
         public float MaxHealth => maxHealth;
+        public CharacterController Controller => _controller;
+        public Collider[] CachedColliders => _cachedColliders;
+        public static IReadOnlyList<GiantBossController> ActiveInstances => ActiveBosses;
+        public bool IsTargetAlive => _health > 0f;
+        public Transform TargetTransform => transform;
 
         public void TakeDamage(float amount)
         {
@@ -114,6 +152,48 @@ namespace PlayerBlock
             CombatVfxUtility.SpawnDamageNumber(GetDamageNumberPosition(), amount, new Color(1f, 0.84f, 0.34f, 1f));
             UpdateHealthBar();
             UpdatePhase();
+
+            if (_health <= 0f)
+            {
+                BeginDefeatSequence();
+            }
+        }
+
+        public Vector3 GetAimPoint()
+        {
+            return GetDamageNumberPosition();
+        }
+
+        public bool TryGetClosestPoint(Vector3 fromPosition, out Vector3 closestPoint)
+        {
+            closestPoint = fromPosition;
+            var bestDistance = float.PositiveInfinity;
+            var found = false;
+
+            for (var i = 0; i < _cachedColliders.Length; i++)
+            {
+                var collider = _cachedColliders[i];
+                if (collider == null || !collider.enabled)
+                {
+                    continue;
+                }
+
+                var point = collider.ClosestPoint(fromPosition);
+                var sqrDistance = (point - fromPosition).sqrMagnitude;
+                if (sqrDistance < bestDistance)
+                {
+                    bestDistance = sqrDistance;
+                    closestPoint = point;
+                    found = true;
+                }
+            }
+
+            return found;
+        }
+
+        public void ReceiveShadowDamage(float amount)
+        {
+            TakeDamage(amount);
         }
 
         private Vector3 GetDamageNumberPosition()
@@ -126,9 +206,23 @@ namespace PlayerBlock
             return transform.position + Vector3.up * 2.35f;
         }
 
+        private void OnEnable()
+        {
+            if (!ActiveBosses.Contains(this))
+            {
+                ActiveBosses.Add(this);
+            }
+        }
+
+        private void OnDisable()
+        {
+            ActiveBosses.Remove(this);
+        }
+
         private void Awake()
         {
             _controller = GetComponent<CharacterController>();
+            RefreshCachedColliders();
             _health = maxHealth;
 
             if (visualRoot == null)
@@ -183,10 +277,21 @@ namespace PlayerBlock
             UpdatePhase();
         }
 
+        private void OnTransformChildrenChanged()
+        {
+            RefreshCachedColliders();
+        }
+
+        private void RefreshCachedColliders()
+        {
+            _cachedColliders = GetComponentsInChildren<Collider>(true);
+        }
+
         private void Update()
         {
             if (_health <= 0f)
             {
+                UpdateDefeatSequence(Time.deltaTime);
                 UpdateVisuals(Time.deltaTime);
                 return;
             }
@@ -427,6 +532,134 @@ namespace PlayerBlock
             }
         }
 
+        private void BeginDefeatSequence()
+        {
+            if (_deathSequenceStarted)
+            {
+                return;
+            }
+
+            _deathSequenceStarted = true;
+            _state = BossState.Stunned;
+            _stateTimer = 0f;
+            _walkAmount = 0f;
+            _verticalVelocity = Vector3.zero;
+            _target = null;
+            CombatHud.Instance.SetBossHealth(0f, 0f);
+            CombatHud.Instance.SetStatusMessage("THE GIANT HAS FALLEN", true);
+
+            if (defeatSeal == null)
+            {
+                var sealObject = GameObject.Find("seal");
+                if (sealObject != null)
+                {
+                    defeatSeal = sealObject.transform;
+                }
+            }
+
+            _fallenHeadTransform = defeatSeal;
+            _fallenHeadObject = _fallenHeadTransform != null ? _fallenHeadTransform.gameObject : null;
+            var sealStartHeight = _fallenHeadTransform != null ? _fallenHeadTransform.position.y : transform.position.y + headRiseHeight;
+            _headRiseTarget = new Vector3(
+                transform.position.x,
+                Mathf.Max(transform.position.y + headRiseHeight, sealStartHeight),
+                transform.position.z);
+            _headLandTarget = transform.position + Vector3.up * headLandingHeight;
+            _defeatSequenceState = _fallenHeadTransform != null
+                ? DefeatSequenceState.Rising
+                : DefeatSequenceState.ReadyForClear;
+        }
+
+        private void UpdateDefeatSequence(float deltaTime)
+        {
+            switch (_defeatSequenceState)
+            {
+                case DefeatSequenceState.Rising:
+                    UpdateFallenHeadRise(deltaTime);
+                    break;
+                case DefeatSequenceState.Falling:
+                    UpdateFallenHeadFall(deltaTime);
+                    break;
+                case DefeatSequenceState.ReadyForClear:
+                    UpdateClearInteraction();
+                    break;
+                case DefeatSequenceState.Cleared:
+                    break;
+            }
+        }
+
+        private void UpdateFallenHeadRise(float deltaTime)
+        {
+            if (_fallenHeadTransform == null)
+            {
+                _defeatSequenceState = DefeatSequenceState.ReadyForClear;
+                return;
+            }
+
+            _fallenHeadTransform.position = Vector3.MoveTowards(
+                _fallenHeadTransform.position,
+                _headRiseTarget,
+                headRiseSpeed * deltaTime);
+            _fallenHeadTransform.rotation = Quaternion.Slerp(_fallenHeadTransform.rotation, Quaternion.identity, 8f * deltaTime);
+
+            if (Vector3.Distance(_fallenHeadTransform.position, _headRiseTarget) <= 0.08f)
+            {
+                _defeatSequenceState = DefeatSequenceState.Falling;
+            }
+        }
+
+        private void UpdateFallenHeadFall(float deltaTime)
+        {
+            if (_fallenHeadTransform == null)
+            {
+                _defeatSequenceState = DefeatSequenceState.ReadyForClear;
+                return;
+            }
+
+            _fallenHeadTransform.position = Vector3.MoveTowards(
+                _fallenHeadTransform.position,
+                _headLandTarget,
+                headDropSpeed * deltaTime);
+            _fallenHeadTransform.rotation = Quaternion.Slerp(_fallenHeadTransform.rotation, Quaternion.identity, 12f * deltaTime);
+
+            if (Vector3.Distance(_fallenHeadTransform.position, _headLandTarget) <= 0.06f)
+            {
+                _fallenHeadTransform.position = _headLandTarget;
+                _fallenHeadTransform.rotation = Quaternion.identity;
+                CombatVfxUtility.SpawnDustBurst(_headLandTarget, Vector3.up, 0.8f, 14);
+                CombatHud.Instance.SetStatusMessage("APPROACH THE SEAL AND PRESS E", true);
+                _defeatSequenceState = DefeatSequenceState.ReadyForClear;
+            }
+        }
+
+        private void UpdateClearInteraction()
+        {
+            var interactionPoint = _fallenHeadTransform != null ? _fallenHeadTransform.position : _headLandTarget;
+            var hasNearbyPlayer = false;
+            var players = BlockPlayerController.ActiveInstances;
+            for (var i = 0; i < players.Count; i++)
+            {
+                var player = players[i];
+                if (player == null || player.Health <= 0f)
+                {
+                    continue;
+                }
+
+                if (Vector3.Distance(player.transform.position, interactionPoint) <= clearInteractDistance)
+                {
+                    hasNearbyPlayer = true;
+                    break;
+                }
+            }
+
+            CombatHud.Instance.SetStatusMessage(hasNearbyPlayer ? "PRESS E TO CLEAR" : "APPROACH THE SEAL AND PRESS E", true);
+            if (hasNearbyPlayer && InteractPressed())
+            {
+                CombatHud.Instance.SetStatusMessage("STAGE CLEAR", true);
+                _defeatSequenceState = DefeatSequenceState.Cleared;
+            }
+        }
+
         private void ApplyGravity(float deltaTime)
         {
             if (_state == BossState.JumpAirborne)
@@ -448,16 +681,24 @@ namespace PlayerBlock
             Transform bestTarget = null;
             var bestSqrDistance = float.PositiveInfinity;
 
-            var players = FindObjectsByType<BlockPlayerController>(FindObjectsSortMode.None);
-            for (var i = 0; i < players.Length; i++)
+            var players = BlockPlayerController.ActiveInstances;
+            for (var i = 0; i < players.Count; i++)
             {
-                ConsiderTarget(players[i].transform, ref bestTarget, ref bestSqrDistance);
+                var player = players[i];
+                if (player != null && player.Health > 0f)
+                {
+                    ConsiderTarget(player.transform, ref bestTarget, ref bestSqrDistance);
+                }
             }
 
-            var shadows = FindObjectsByType<ShadowCloneTarget>(FindObjectsSortMode.None);
-            for (var i = 0; i < shadows.Length; i++)
+            var shadows = ShadowCloneTarget.ActiveInstances;
+            for (var i = 0; i < shadows.Count; i++)
             {
-                ConsiderTarget(shadows[i].transform, ref bestTarget, ref bestSqrDistance);
+                var shadow = shadows[i];
+                if (shadow != null && shadow.IsAlive)
+                {
+                    ConsiderTarget(shadow.transform, ref bestTarget, ref bestSqrDistance);
+                }
             }
 
             return bestTarget;
@@ -480,31 +721,36 @@ namespace PlayerBlock
 
         private void HitTargetsInRadius(Vector3 center, float radius)
         {
-            var colliders = Physics.OverlapSphere(center, radius);
-            if (TryBlockByShield(colliders))
+            var hitCount = Physics.OverlapSphereNonAlloc(center, radius, TargetHitBuffer, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+            if (TryBlockByShield(TargetHitBuffer, hitCount))
             {
                 return;
             }
 
-            for (var i = 0; i < colliders.Length; i++)
+            for (var i = 0; i < hitCount; i++)
             {
-                HitTargetCollider(colliders[i]);
+                HitTargetCollider(TargetHitBuffer[i]);
             }
         }
 
         private void HitTargetsInSweepArc()
         {
-            var center = transform.position + Vector3.up * 1.35f + transform.forward * 0.95f;
-            var colliders = Physics.OverlapSphere(center, sweepRadius);
-            if (TryBlockByShield(colliders))
+            var center = transform.position + Vector3.up * sweepCenterHeight + transform.forward * sweepForwardOffset;
+            var hitCount = Physics.OverlapSphereNonAlloc(center, sweepRadius, TargetHitBuffer, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+            if (TryBlockByShield(TargetHitBuffer, hitCount))
             {
                 return;
             }
 
-            for (var i = 0; i < colliders.Length; i++)
+            for (var i = 0; i < hitCount; i++)
             {
-                var targetCollider = colliders[i];
+                var targetCollider = TargetHitBuffer[i];
                 if (targetCollider == null || targetCollider.transform.IsChildOf(transform))
+                {
+                    continue;
+                }
+
+                if (targetCollider.bounds.min.y > transform.position.y + sweepHitMaxHeight)
                 {
                     continue;
                 }
@@ -529,17 +775,17 @@ namespace PlayerBlock
         {
             var center = transform.position + transform.forward * 1.4f + Vector3.up * 1.2f;
             var halfExtents = new Vector3(chargeWidth * 0.5f, 1.5f, 1.4f);
-            var colliders = Physics.OverlapBox(center, halfExtents, transform.rotation);
-            if (TryBlockByShield(colliders))
+            var hitCount = Physics.OverlapBoxNonAlloc(center, halfExtents, TargetHitBuffer, transform.rotation, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+            if (TryBlockByShield(TargetHitBuffer, hitCount))
             {
                 return;
             }
 
-            for (var i = 0; i < colliders.Length; i++)
+            for (var i = 0; i < hitCount; i++)
             {
-                if (_chargeHits.Add(colliders[i]))
+                if (_chargeHits.Add(TargetHitBuffer[i]))
                 {
-                    HitTargetCollider(colliders[i]);
+                    HitTargetCollider(TargetHitBuffer[i]);
                 }
             }
         }
@@ -548,6 +794,12 @@ namespace PlayerBlock
         {
             if (targetCollider == null || targetCollider.transform.IsChildOf(transform))
             {
+                return;
+            }
+
+            if (targetCollider.GetComponentInParent<ShadowMinionShield>() != null)
+            {
+                CombatVfxUtility.SpawnImpactBurst(targetCollider.bounds.center, transform.forward, new Color(0.08f, 0.05f, 0.12f, 1f), 0.18f, 5);
                 return;
             }
 
@@ -579,9 +831,9 @@ namespace PlayerBlock
             }
         }
 
-        private bool TryBlockByShield(Collider[] colliders)
+        private bool TryBlockByShield(Collider[] colliders, int hitCount)
         {
-            for (var i = 0; i < colliders.Length; i++)
+            for (var i = 0; i < hitCount; i++)
             {
                 var targetCollider = colliders[i];
                 if (targetCollider == null)
@@ -659,20 +911,20 @@ namespace PlayerBlock
                     bodyRotation *= Quaternion.Euler(12f, 0f, 0f);
                     break;
                 case BossState.SweepWindup:
-                    bodyPosition += new Vector3(0f, -0.18f, 0.18f);
-                    headPosition += new Vector3(0f, -0.16f, 0.26f);
-                    bodyRotation *= Quaternion.Euler(24f, -18f, -4f);
-                    headRotation *= Quaternion.Euler(18f, -10f, 0f);
-                    leftArmRotation *= Quaternion.Euler(-147f, 0f, 64f);
-                    rightArmRotation *= Quaternion.Euler(-147f, 0f, 64f);
+                    bodyPosition += new Vector3(0f, -0.34f, 0.2f);
+                    headPosition += new Vector3(0f, -0.28f, 0.3f);
+                    bodyRotation *= Quaternion.Euler(34f, -24f, -7f);
+                    headRotation *= Quaternion.Euler(22f, -14f, 0f);
+                    leftArmRotation *= Quaternion.Euler(-112f, -24f, 84f);
+                    rightArmRotation *= Quaternion.Euler(-112f, -24f, 84f);
                     break;
                 case BossState.SweepSlam:
-                    bodyPosition += new Vector3(0f, -0.22f, 0.28f);
-                    headPosition += new Vector3(0f, -0.2f, 0.34f);
-                    bodyRotation *= Quaternion.Euler(30f, 26f, 4f);
-                    headRotation *= Quaternion.Euler(20f, 14f, 0f);
-                    leftArmRotation *= Quaternion.Euler(-133f, 0f, -78f);
-                    rightArmRotation *= Quaternion.Euler(-133f, 0f, -78f);
+                    bodyPosition += new Vector3(0f, -0.42f, 0.36f);
+                    headPosition += new Vector3(0f, -0.34f, 0.42f);
+                    bodyRotation *= Quaternion.Euler(38f, 36f, 8f);
+                    headRotation *= Quaternion.Euler(24f, 18f, 0f);
+                    leftArmRotation *= Quaternion.Euler(-86f, 28f, -112f);
+                    rightArmRotation *= Quaternion.Euler(-86f, 28f, -112f);
                     break;
                 case BossState.JumpWindup:
                     bodyScale = new Vector3(_bodyBaseScale.x * 1.12f, _bodyBaseScale.y * 0.75f, _bodyBaseScale.z * 1.18f);
@@ -747,6 +999,15 @@ namespace PlayerBlock
         private void UpdateHealthBar()
         {
             CombatHud.Instance.SetBossHealth(_health, maxHealth);
+        }
+
+        private static bool InteractPressed()
+        {
+#if ENABLE_INPUT_SYSTEM
+            return Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame;
+#else
+            return Input.GetKeyDown(KeyCode.E);
+#endif
         }
 
         private float GetContactDamage()

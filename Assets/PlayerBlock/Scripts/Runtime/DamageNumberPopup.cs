@@ -59,11 +59,11 @@ namespace PlayerBlock
                 toCamera.y = 0f;
                 if (toCamera.sqrMagnitude > 0.0001f)
                 {
-                    transform.rotation = Quaternion.LookRotation(toCamera.normalized, Vector3.up);
+                    transform.rotation = Quaternion.LookRotation(toCamera.normalized, Vector3.up) * Quaternion.Euler(0f, 180f, 0f);
                 }
                 else
                 {
-                    transform.rotation = Quaternion.LookRotation(-cameraToFace.transform.forward, Vector3.up);
+                    transform.rotation = Quaternion.LookRotation(-cameraToFace.transform.forward, Vector3.up) * Quaternion.Euler(0f, 180f, 0f);
                 }
             }
 
