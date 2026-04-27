@@ -8,11 +8,11 @@ namespace PlayerBlock
     [DisallowMultipleComponent]
     public sealed class UiButtonFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler, ISelectHandler, IDeselectHandler
     {
-        [SerializeField] private float hoverScale = 1.05f;
-        [SerializeField] private float pressedScale = 0.97f;
+        [SerializeField] private float hoverScale = 1.025f;
+        [SerializeField] private float pressedScale = 0.985f;
         [SerializeField] private float transitionSpeed = 18f;
-        [SerializeField] private Color hoverTint = new Color(1f, 0.97f, 0.88f, 1f);
-        [SerializeField] private Color pressedTint = new Color(0.88f, 0.92f, 1f, 1f);
+        [SerializeField] private Color hoverTint = new Color(1f, 0.985f, 0.94f, 1f);
+        [SerializeField] private Color pressedTint = new Color(0.93f, 0.95f, 0.98f, 1f);
 
         private RectTransform _rectTransform;
         private Graphic _graphic;
@@ -152,7 +152,7 @@ namespace PlayerBlock
         private IEnumerator PulseRoutine()
         {
             var pulseDuration = 0.12f;
-            var pulseScale = _baseScale * 1.08f;
+            var pulseScale = _baseScale * 1.03f;
 
             for (var elapsed = 0f; elapsed < pulseDuration; elapsed += Time.unscaledDeltaTime)
             {

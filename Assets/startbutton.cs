@@ -30,3 +30,7 @@ public class LoadSceneButton : MonoBehaviour
         SceneManager.LoadScene(sceneName);
     }
 }
+
+public class startbutton : LoadSceneButton
+{
+}
