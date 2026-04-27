@@ -109,7 +109,7 @@ namespace PlayerBlock
                 }
 
                 _hasImpacted = true;
-                player.TakeDamage(damage);
+                player.TakeDamage(damage, transform.position);
                 CombatVfxUtility.SpawnImpactBurst(impactPoint, impactNormal, new Color(0.08f, 0.05f, 0.1f, 1f), 0.2f, 5);
                 Destroy(gameObject);
                 return;

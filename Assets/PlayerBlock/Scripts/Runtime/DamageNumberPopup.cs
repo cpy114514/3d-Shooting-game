@@ -44,7 +44,7 @@ namespace PlayerBlock
             }
         }
 
-        private void Update()
+        private void LateUpdate()
         {
             _age += Time.deltaTime;
             var t = lifeTime <= 0f ? 1f : Mathf.Clamp01(_age / lifeTime);
@@ -52,11 +52,14 @@ namespace PlayerBlock
             transform.position += (Vector3.up * riseSpeed + _drift * driftSpeed) * Time.deltaTime;
             transform.localScale = _baseScale * (1f + t * scaleGrowth);
 
-            var cameraToFace = Camera.main != null ? Camera.main : FindFirstObjectByType<Camera>();
+            var cameraToFace = BlockPlayerController.ActiveCamera;
+            if (cameraToFace == null)
+            {
+                cameraToFace = Camera.main != null ? Camera.main : FindFirstObjectByType<Camera>();
+            }
             if (cameraToFace != null)
             {
                 var toCamera = cameraToFace.transform.position - transform.position;
-                toCamera.y = 0f;
                 if (toCamera.sqrMagnitude > 0.0001f)
                 {
                     transform.rotation = Quaternion.LookRotation(toCamera.normalized, Vector3.up) * Quaternion.Euler(0f, 180f, 0f);

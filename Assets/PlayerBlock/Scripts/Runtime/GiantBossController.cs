@@ -132,6 +132,7 @@ namespace PlayerBlock
         private Vector3 _headRiseTarget;
         private Vector3 _headLandTarget;
         private bool _deathSequenceStarted;
+        private bool _bossVisualsHidden;
 
         public float Health => _health;
         public float MaxHealth => maxHealth;
@@ -148,8 +149,9 @@ namespace PlayerBlock
                 return;
             }
 
-            _health = Mathf.Max(0f, _health - amount);
-            CombatVfxUtility.SpawnDamageNumber(GetDamageNumberPosition(), amount, new Color(1f, 0.84f, 0.34f, 1f));
+            var adjustedAmount = BrowserGameSettings.GetAdjustedDamageDealtToBoss(amount);
+            _health = Mathf.Max(0f, _health - adjustedAmount);
+            CombatVfxUtility.SpawnDamageNumber(GetDamageNumberPosition(), adjustedAmount, new Color(1f, 0.84f, 0.34f, 1f));
             UpdateHealthBar();
             UpdatePhase();
 
@@ -627,6 +629,7 @@ namespace PlayerBlock
                 _fallenHeadTransform.position = _headLandTarget;
                 _fallenHeadTransform.rotation = Quaternion.identity;
                 CombatVfxUtility.SpawnDustBurst(_headLandTarget, Vector3.up, 0.8f, 14);
+                HideBossVisuals();
                 CombatHud.Instance.SetStatusMessage("APPROACH THE SEAL AND PRESS E", true);
                 _defeatSequenceState = DefeatSequenceState.ReadyForClear;
             }
@@ -655,8 +658,47 @@ namespace PlayerBlock
             CombatHud.Instance.SetStatusMessage(hasNearbyPlayer ? "PRESS E TO CLEAR" : "APPROACH THE SEAL AND PRESS E", true);
             if (hasNearbyPlayer && InteractPressed())
             {
-                CombatHud.Instance.SetStatusMessage("STAGE CLEAR", true);
+                CombatHud.Instance.SetStatusMessage(string.Empty, false);
+                CombatHud.Instance.PlayEndingSequence();
                 _defeatSequenceState = DefeatSequenceState.Cleared;
+                Destroy(gameObject);
+            }
+        }
+
+        private void HideBossVisuals()
+        {
+            if (_bossVisualsHidden)
+            {
+                return;
+            }
+
+            _bossVisualsHidden = true;
+
+            if (visualRoot != null)
+            {
+                visualRoot.gameObject.SetActive(false);
+            }
+            else
+            {
+                if (body != null) body.gameObject.SetActive(false);
+                if (head != null) head.gameObject.SetActive(false);
+                if (leftArm != null) leftArm.gameObject.SetActive(false);
+                if (rightArm != null) rightArm.gameObject.SetActive(false);
+                if (leftLeg != null) leftLeg.gameObject.SetActive(false);
+                if (rightLeg != null) rightLeg.gameObject.SetActive(false);
+            }
+
+            if (_controller != null)
+            {
+                _controller.enabled = false;
+            }
+
+            for (var i = 0; i < _cachedColliders.Length; i++)
+            {
+                if (_cachedColliders[i] != null)
+                {
+                    _cachedColliders[i].enabled = false;
+                }
             }
         }
 
@@ -820,7 +862,7 @@ namespace PlayerBlock
             var player = targetCollider.GetComponentInParent<BlockPlayerController>();
             if (player != null)
             {
-                player.TakeDamage(GetContactDamage());
+                player.TakeDamage(GetContactDamage(), transform.position);
                 var pushDirection = Flatten(player.transform.position - transform.position).normalized;
                 if (pushDirection.sqrMagnitude > 0.01f)
                 {

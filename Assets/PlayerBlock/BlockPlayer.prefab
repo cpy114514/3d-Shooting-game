@@ -458,14 +458,17 @@ MonoBehaviour:
   coyoteTime: 0.12
   jumpBufferTime: 0.12
   fallGravityMultiplier: 1.25
-  dashSpeed: 27
-  dashDuration: 0.48
-  dashDecay: 16
-  dashCooldown: 0.55
+  dashSpeed: 24
+  dashDuration: 0.5
+  dashDecay: 12
+  dashCooldown: 0.9
   maxHealth: 100
   shadowBulletSpeed: 24
-  meleeShadowCooldown: 1.2
-  rangedShadowCooldown: 2.2
+  maxShadowEnergy: 10
+  shadowEnergyRegenPerSecond: 1.5
+  meleeShadowEnergyCost: 1
+  rangedShadowEnergyCost: 2
+  shieldShadowEnergyCost: 2
   shadowBulletRadius: 0.2
   punchDamage: 5
   punchRange: 0.72
@@ -473,6 +476,7 @@ MonoBehaviour:
   punchCooldown: 0.5
   punchAnimationDuration: 0.46
   shootAnimationDuration: 0.22
+  shootReleaseTimeNormalized: 0.42
   aimArmSharpness: 24
   playerCamera: {fileID: 0}
   cameraPivot: {fileID: 0}
@@ -493,6 +497,14 @@ MonoBehaviour:
   landingRecoverSpeed: 8
   walkAnimationSpeed: 1.85
   walkBobHeight: 0.1
+  hitRecoilImpulse: 5.4
+  hitRecoilDecay: 19
+  hitReactionDuration: 0.24
+  hitReactionDrop: 0.12
+  hitReactionPitch: 18
+  hitReactionRoll: 12
+  hitShakeAmplitude: 0.32
+  hitShakeDuration: 0.2
 --- !u!1 &2826642764241206476
 GameObject:
   m_ObjectHideFlags: 0

@@ -107,10 +107,10 @@ namespace PlayerBlock.Editor
                 : new Vector3(1.25f, 2f, 0.75f);
 
             var rigidbody = root.AddComponent<Rigidbody>();
-            rigidbody.mass = 4f;
+            rigidbody.mass = cloneKind == ShadowCloneKind.Shield ? 20f : 18f;
             rigidbody.useGravity = true;
-            rigidbody.linearDamping = 0.8f;
-            rigidbody.angularDamping = 6f;
+            rigidbody.linearDamping = 0.15f;
+            rigidbody.angularDamping = 8f;
             rigidbody.interpolation = RigidbodyInterpolation.None;
             rigidbody.collisionDetectionMode = CollisionDetectionMode.Discrete;
             rigidbody.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
@@ -130,6 +130,7 @@ namespace PlayerBlock.Editor
             {
                 CreateBlock(root.transform, "Shield", new Vector3(-0.52f, 1.12f, 0.36f), new Vector3(0.82f, 1.14f, 0.14f), material);
                 CreateBlock(root.transform, "ShieldBoss", new Vector3(-0.16f, 0.96f, 0.42f), new Vector3(0.24f, 0.38f, 0.1f), material);
+                EnsureShieldCollider(root.transform.Find("Shield"));
             }
 
             PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
@@ -146,7 +147,7 @@ namespace PlayerBlock.Editor
             SetFloat(serializedTarget, "lifeTime", 18f);
             SetFloat(serializedTarget, "rangedAttackRange", 18f);
             SetFloat(serializedTarget, "moveSpeed", 3.6f);
-            SetFloat(serializedTarget, "shieldMoveSpeed", 2.15f);
+            SetFloat(serializedTarget, "shieldMoveSpeed", 2.05f);
             SetFloat(serializedTarget, "shieldHoldRange", 2.55f);
             SetFloat(serializedTarget, "rangedPreferredDistance", 14f);
             SetFloat(serializedTarget, "stopDistanceBuffer", 0.25f);
@@ -163,11 +164,11 @@ namespace PlayerBlock.Editor
             SetFloat(serializedTarget, "meleeHitForwardRange", 2.9f);
             SetFloat(serializedTarget, "meleeHitVerticalRange", 1.65f);
             SetFloat(serializedTarget, "meleeSpawnStunDuration", 0.25f);
-            SetFloat(serializedTarget, "meleeAttackWindupDuration", 0.3f);
-            SetFloat(serializedTarget, "meleeAttackDamage", 3f);
+            SetFloat(serializedTarget, "meleeAttackWindupDuration", 0.34f);
+            SetFloat(serializedTarget, "meleeAttackDamage", 2f);
             SetFloat(serializedTarget, "rangedAttackDamage", 1f);
             SetFloat(serializedTarget, "rangedProjectileSpeed", 15f);
-            SetFloat(serializedTarget, "meleeAttackCooldown", 1.0f);
+            SetFloat(serializedTarget, "meleeAttackCooldown", 1.75f);
             SetFloat(serializedTarget, "rangedAttackCooldown", 0.85f);
             SetFloat(serializedTarget, "rangedAttackAnimationDuration", rangedAttackAnimationDuration);
             SetFloat(serializedTarget, "crushHorizontalRadius", 1.15f);
@@ -228,6 +229,45 @@ namespace PlayerBlock.Editor
             {
                 renderer.sharedMaterial = material;
             }
+        }
+
+        private static void EnsureShieldCollider(Transform shield)
+        {
+            if (shield == null)
+            {
+                return;
+            }
+
+            var collider = shield.GetComponent<BoxCollider>();
+            if (collider == null)
+            {
+                collider = shield.gameObject.AddComponent<BoxCollider>();
+            }
+
+            collider.isTrigger = false;
+
+            var renderer = shield.GetComponent<Renderer>();
+            if (renderer != null)
+            {
+                var bounds = renderer.bounds;
+                var scale = shield.lossyScale;
+                var localCenter = shield.InverseTransformPoint(bounds.center);
+                var localSize = new Vector3(
+                    Mathf.Abs(scale.x) > 0.0001f ? bounds.size.x / Mathf.Abs(scale.x) : 1f,
+                    Mathf.Abs(scale.y) > 0.0001f ? bounds.size.y / Mathf.Abs(scale.y) : 1f,
+                    Mathf.Abs(scale.z) > 0.0001f ? bounds.size.z / Mathf.Abs(scale.z) : 1f);
+
+                localSize.x = Mathf.Max(localSize.x * 1.05f, 1.15f);
+                localSize.y = Mathf.Max(localSize.y * 1.05f, 1.65f);
+                localSize.z = Mathf.Max(localSize.z * 4.5f, 0.7f);
+
+                collider.center = localCenter + new Vector3(0f, 0f, 0.12f);
+                collider.size = localSize;
+                return;
+            }
+
+            collider.center = new Vector3(0f, 0f, 0.12f);
+            collider.size = new Vector3(1.25f, 1.85f, 2.2f);
         }
 
         private static string GetRootName(ShadowCloneKind cloneKind)

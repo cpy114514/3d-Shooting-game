@@ -45,6 +45,10 @@ namespace PlayerBlock
         [SerializeField] private float crushHorizontalRadius = 1.15f;
         [SerializeField] private float crushHeightTolerance = 0.25f;
 
+        [Header("Physics")]
+        [SerializeField] private float fallGravityMultiplier = 1.65f;
+        [SerializeField] private float maxFallSpeed = 22f;
+
         private static readonly List<ShadowCloneTarget> ActiveShadows = new List<ShadowCloneTarget>(32);
         private static readonly Collider[] MeleeHitBuffer = new Collider[24];
         private static Material SharedShadowMaterial;
@@ -89,6 +93,7 @@ namespace PlayerBlock
             _meleeState = MeleeState.Ready;
             _meleeStateTimer = 0f;
             _hasHitThisSwing = false;
+            ApplyRigidbodyTuning();
         }
 
         public bool IsShield => _kind == ShadowCloneKind.Shield;
@@ -180,6 +185,7 @@ namespace PlayerBlock
             _rigidbody = GetComponent<Rigidbody>();
             if (_rigidbody != null)
             {
+                ApplyRigidbodyTuning();
                 _rigidbody.useGravity = true;
                 _rigidbody.interpolation = RigidbodyInterpolation.None;
                 _rigidbody.collisionDetectionMode = CollisionDetectionMode.Discrete;
@@ -273,14 +279,14 @@ namespace PlayerBlock
             if (target != null)
             {
                 FaceTarget(target.TargetTransform);
-                if (_kind == ShadowCloneKind.Melee)
+                if (_kind == ShadowCloneKind.Melee || _kind == ShadowCloneKind.Shield)
                 {
                     UpdateMeleeCombat(target);
                 }
-                else
+                else if (_kind == ShadowCloneKind.Ranged)
                 {
                     MoveAroundTarget(target.TargetTransform);
-                    if (_attackCooldownTimer <= 0f && _kind == ShadowCloneKind.Ranged)
+                    if (_attackCooldownTimer <= 0f)
                     {
                         var sqrDistance = (target.TargetTransform.position - transform.position).sqrMagnitude;
                         // Ranged shadows keep their distance, then fire once the target is inside their attack window.
@@ -294,6 +300,10 @@ namespace PlayerBlock
                         }
                     }
                 }
+                else
+                {
+                    StopHorizontalMovement();
+                }
             }
             else
             {
@@ -302,6 +312,11 @@ namespace PlayerBlock
             }
 
             UpdateAttackVisual();
+        }
+
+        private void FixedUpdate()
+        {
+            ApplyExtraFallAcceleration();
         }
 
         private void UpdateMeleeCombat(IShadowCombatTarget target)
@@ -465,6 +480,37 @@ namespace PlayerBlock
             _rigidbody.linearVelocity = new Vector3(targetHorizontal.x, currentVelocity.y, targetHorizontal.z);
         }
 
+        private void ApplyRigidbodyTuning()
+        {
+            if (_rigidbody == null)
+            {
+                return;
+            }
+
+            _rigidbody.mass = _kind == ShadowCloneKind.Shield ? 20f : 18f;
+            _rigidbody.linearDamping = 0.15f;
+            _rigidbody.angularDamping = 8f;
+            _rigidbody.maxAngularVelocity = 2f;
+        }
+
+        private void ApplyExtraFallAcceleration()
+        {
+            if (_rigidbody == null)
+            {
+                return;
+            }
+
+            var velocity = _rigidbody.linearVelocity;
+            if (velocity.y >= 0f)
+            {
+                return;
+            }
+
+            var extraGravity = Mathf.Abs(Physics.gravity.y) * Mathf.Max(0f, fallGravityMultiplier - 1f);
+            velocity.y = Mathf.Max(velocity.y - extraGravity * Time.fixedDeltaTime, -maxFallSpeed);
+            _rigidbody.linearVelocity = velocity;
+        }
+
         private void BreakShieldVisuals(Vector3 blockPoint, Vector3 incomingDirection)
         {
             CombatVfxUtility.SpawnImpactBurst(blockPoint, incomingDirection, new Color(0.09f, 0.11f, 0.16f, 1f), 0.34f, 8);
@@ -558,6 +604,11 @@ namespace PlayerBlock
 
             if (target is ShadowMinionController minion && minion.HasShield)
             {
+                if (minion.TryBlockIncomingMeleeAttack(handPosition, impactPoint))
+                {
+                    return false;
+                }
+
                 var flatFromShadowToTarget = minion.transform.position - transform.position;
                 flatFromShadowToTarget.y = 0f;
                 if (flatFromShadowToTarget.sqrMagnitude > 0.001f && Vector3.Dot(minion.transform.forward, flatFromShadowToTarget.normalized) > 0.15f)
@@ -745,11 +796,12 @@ namespace PlayerBlock
             }
             else if (_kind == ShadowCloneKind.Shield)
             {
-                ApplyRotation(_leftArm, _leftArmBaseRotation * Quaternion.Euler(-84f + moveSwing * 0.18f, 0f, 112f));
-                ApplyRotation(_rightArm, _rightArmBaseRotation * Quaternion.Euler(-18f - moveSwing * 0.08f, 0f, -14f));
+                var shieldSwing = swing * 0.65f;
+                ApplyRotation(_leftArm, _leftArmBaseRotation * Quaternion.Euler(-84f + moveSwing * 0.18f, 0f, 112f - shieldSwing * 12f));
+                ApplyRotation(_rightArm, _rightArmBaseRotation * Quaternion.Euler(-18f - moveSwing * 0.08f - shieldSwing * 70f, 0f, -14f + shieldSwing * 10f));
                 if (!_shieldBroken)
                 {
-                    ApplyPosition(_shield, _shieldBasePosition + new Vector3(0f, moveBob * 0.2f, 0.02f));
+                    ApplyPosition(_shield, _shieldBasePosition + new Vector3(0f, moveBob * 0.2f, 0.02f - shieldSwing * 0.06f));
                 }
                 ApplyRotation(_shield, _shieldBaseRotation * Quaternion.Euler(0f, 0f, 0f));
             }
@@ -791,7 +843,7 @@ namespace PlayerBlock
 
         private float GetAttackAnimationDuration()
         {
-            return _kind == ShadowCloneKind.Melee ? meleeAttackWindupDuration + meleeStrikeDuration : rangedAttackAnimationDuration;
+            return _kind == ShadowCloneKind.Ranged ? rangedAttackAnimationDuration : meleeAttackWindupDuration + meleeStrikeDuration;
         }
 
         private void Die()

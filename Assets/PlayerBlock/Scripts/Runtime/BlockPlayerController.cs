@@ -70,8 +70,35 @@ namespace PlayerBlock
         [SerializeField] private float walkAnimationSpeed = 1.85f;
         [SerializeField] private float walkBobHeight = 0.1f;
 
+        [Header("Hit Reaction")]
+        [SerializeField] private float hitRecoilImpulse = 5.4f;
+        [SerializeField] private float hitRecoilDecay = 19f;
+        [SerializeField] private float hitReactionDuration = 0.24f;
+        [SerializeField] private float hitReactionDrop = 0.12f;
+        [SerializeField] private float hitReactionPitch = 18f;
+        [SerializeField] private float hitReactionRoll = 12f;
+        [SerializeField] private float hitShakeAmplitude = 0.32f;
+        [SerializeField] private float hitShakeDuration = 0.2f;
+
         private static readonly List<BlockPlayerController> ActivePlayers = new List<BlockPlayerController>(1);
         private static readonly Collider[] PunchHitBuffer = new Collider[16];
+
+        public static Camera ActiveCamera
+        {
+            get
+            {
+                for (var i = 0; i < ActivePlayers.Count; i++)
+                {
+                    var player = ActivePlayers[i];
+                    if (player != null && player.playerCamera != null)
+                    {
+                        return player.playerCamera;
+                    }
+                }
+
+                return Camera.main != null ? Camera.main : Object.FindFirstObjectByType<Camera>();
+            }
+        }
 
         private CharacterController _controller;
         private Transform _rightArm;
@@ -102,6 +129,18 @@ namespace PlayerBlock
         private bool _isDashing;
         private bool _wasGrounded;
         private BodyPartPose[] _bodyPartPoses;
+        private bool _invertYAxis;
+        private bool _screenShakeEnabled = true;
+        private float _cameraDistanceScale = 1f;
+        private Vector3 _cameraBaseOffsetDirection = new Vector3(0f, 0.4f, -0.92f);
+        private float _cameraBaseOffsetDistance = 4f;
+        private float _cameraShakeTimer;
+        private float _cameraShakeDuration;
+        private float _cameraShakeAmplitude;
+        private Vector3 _damageImpulse;
+        private Vector3 _lastHitDirection = Vector3.back;
+        private float _hitReactionTimer;
+        private float _hitReactionDurationCurrent;
 
         public float Health => _health;
         public float MaxHealth => maxHealth;
@@ -109,16 +148,43 @@ namespace PlayerBlock
         public float MaxShadowEnergy => maxShadowEnergy;
         public static IReadOnlyList<BlockPlayerController> ActiveInstances => ActivePlayers;
 
+        public void ApplyBrowserSettings(float mouseSensitivity, bool invertYAxis, float cameraDistanceScale, bool screenShakeEnabled)
+        {
+            cameraSensitivity = Mathf.Clamp(mouseSensitivity, 0.03f, 0.3f);
+            _invertYAxis = invertYAxis;
+            _cameraDistanceScale = Mathf.Clamp(cameraDistanceScale, 0.75f, 1.5f);
+            _screenShakeEnabled = screenShakeEnabled;
+            UpdateCameraDistanceScale();
+        }
+
         public void TakeDamage(float amount)
+        {
+            TakeDamage(amount, transform.position - transform.forward);
+        }
+
+        public void TakeDamage(float amount, Vector3 hitWorldPosition)
         {
             if (amount <= 0f || _health <= 0f)
             {
                 return;
             }
 
-            _health = Mathf.Max(0f, _health - amount);
-            CombatVfxUtility.SpawnDustBurst(transform.position + Vector3.up * 1.1f, Vector3.up, 0.32f, 6);
+            var adjustedAmount = BrowserGameSettings.GetAdjustedDamageTakenByPlayer(amount);
+            _health = Mathf.Max(0f, _health - adjustedAmount);
+            var hitDirection = GetHitReactionDirection(hitWorldPosition);
+            ApplyHitReaction(adjustedAmount, hitDirection);
+            CombatVfxUtility.SpawnDustBurst(transform.position + Vector3.up * 1.1f, Vector3.up, 0.4f, 9);
+            CombatVfxUtility.SpawnImpactBurst(transform.position + Vector3.up * 1.05f, hitDirection, new Color(0.16f, 0.14f, 0.18f, 1f), 0.26f, 5);
             UpdateHealthBar();
+
+            if (_health <= 0f)
+            {
+                var hud = CombatHud.Instance;
+                if (hud != null)
+                {
+                    hud.ShowDeathPanel();
+                }
+            }
         }
 
         public void HealToFull()
@@ -186,6 +252,11 @@ namespace PlayerBlock
             _shadowEnergy = maxShadowEnergy;
             CacheBodyPartPoses();
             _rightArm = visualRoot != null ? visualRoot.Find("RightArm") : null;
+            ApplyBrowserSettings(
+                BrowserGameSettings.MouseSensitivity,
+                BrowserGameSettings.InvertYAxis,
+                BrowserGameSettings.CameraDistance,
+                BrowserGameSettings.ScreenShakeEnabled);
         }
 
         private void Start()
@@ -204,12 +275,16 @@ namespace PlayerBlock
                 var pivotPosition = transform.position + Vector3.up * cameraLookHeight;
                 var cameraRotation = Quaternion.Euler(_cameraPitch, _cameraYaw, 0f);
                 _cameraFollowOffset = Quaternion.Inverse(cameraRotation) * (playerCamera.transform.position - pivotPosition);
+                CacheCameraOffsetProfile();
+                UpdateCameraDistanceScale();
                 normalFieldOfView = playerCamera.fieldOfView;
                 playerCamera.transform.SetParent(null, true);
             }
             else
             {
                 _cameraFollowOffset = new Vector3(0f, 1.8f, -4f);
+                CacheCameraOffsetProfile();
+                UpdateCameraDistanceScale();
             }
 
             if (cameraPivot != null)
@@ -231,6 +306,11 @@ namespace PlayerBlock
                 return;
             }
 
+            if (BrowserPauseMenu.IsPaused)
+            {
+                return;
+            }
+
             if (_health <= 0f)
             {
                 UpdateVisualPose(Time.deltaTime);
@@ -243,6 +323,8 @@ namespace PlayerBlock
             _punchCooldownTimer = Mathf.Max(0f, _punchCooldownTimer - deltaTime);
             _punchAnimationTimer = Mathf.Max(0f, _punchAnimationTimer - deltaTime);
             _shootAnimationTimer = Mathf.Max(0f, _shootAnimationTimer - deltaTime);
+            _hitReactionTimer = Mathf.Max(0f, _hitReactionTimer - deltaTime);
+            _damageImpulse = Vector3.MoveTowards(_damageImpulse, Vector3.zero, hitRecoilDecay * deltaTime);
             _aimBlend = Mathf.MoveTowards(_aimBlend, AimHeld() ? 1f : 0f, aimArmSharpness * deltaTime);
             _jumpBufferTimer = Mathf.Max(0f, _jumpBufferTimer - deltaTime);
             UpdateCameraInput();
@@ -327,7 +409,7 @@ namespace PlayerBlock
             var gravityScale = _verticalVelocity.y < 0f ? fallGravityMultiplier : 1f;
             _verticalVelocity.y += gravity * gravityScale * deltaTime;
 
-            var motion = (horizontalVelocity + _verticalVelocity) * deltaTime;
+            var motion = (horizontalVelocity + _damageImpulse + _verticalVelocity) * deltaTime;
             _controller.Move(motion);
         }
 
@@ -438,6 +520,7 @@ namespace PlayerBlock
                     ApplyJumpAnimation(ref targetPosition, ref targetRotation, ref targetScale, pose.Name, jumpAmount, fallAmount, _landImpact);
                 }
 
+                ApplyHitReactionAnimation(ref targetPosition, ref targetRotation, ref targetScale, pose.Name);
                 ApplyAimAnimation(ref targetPosition, ref targetRotation, pose.Name);
                 ApplyShootAnimation(ref targetPosition, ref targetRotation, pose.Name);
                 ApplyPunchAnimation(ref targetPosition, ref targetRotation, pose.Name);
@@ -550,10 +633,14 @@ namespace PlayerBlock
                 var minion = PunchHitBuffer[i] != null ? PunchHitBuffer[i].GetComponentInParent<ShadowMinionController>() : null;
                 if (minion != null && minion.IsAlive)
                 {
-                    var shield = PunchHitBuffer[i] != null ? PunchHitBuffer[i].GetComponentInParent<ShadowMinionShield>() : null;
-                    if (shield != null)
+                    if (PunchHitBuffer[i] != null && PunchHitBuffer[i].GetComponentInParent<ShadowMinionShield>() != null)
                     {
                         CombatVfxUtility.SpawnImpactBurst(PunchHitBuffer[i].bounds.center, GetAimDirection(), new Color(0.08f, 0.06f, 0.1f, 1f), 0.24f, 5);
+                        return;
+                    }
+
+                    if (minion.TryBlockIncomingMeleeAttack(punchCenter, PunchHitBuffer[i].ClosestPoint(punchCenter)))
+                    {
                         return;
                     }
 
@@ -823,11 +910,62 @@ namespace PlayerBlock
             }
         }
 
+        private void ApplyHitReactionAnimation(
+            ref Vector3 targetPosition,
+            ref Quaternion targetRotation,
+            ref Vector3 targetScale,
+            string bodyPartName)
+        {
+            if (_hitReactionTimer <= 0f || _hitReactionDurationCurrent <= 0.0001f)
+            {
+                return;
+            }
+
+            var localHitDirection = visualRoot != null
+                ? visualRoot.InverseTransformDirection(_lastHitDirection).normalized
+                : transform.InverseTransformDirection(_lastHitDirection).normalized;
+            var elapsed = 1f - (_hitReactionTimer / _hitReactionDurationCurrent);
+            var hitAmount = Mathf.Sin(Mathf.Clamp01(elapsed) * Mathf.PI);
+            var backwardLean = Mathf.Max(0.35f, -localHitDirection.z + 0.35f);
+            var sidewaysLean = Mathf.Clamp(localHitDirection.x, -1f, 1f);
+            var bodyDrop = hitReactionDrop * hitAmount;
+
+            switch (bodyPartName)
+            {
+                case "Body":
+                    targetPosition += new Vector3(localHitDirection.x * 0.05f, -bodyDrop, localHitDirection.z * 0.08f) * hitAmount;
+                    targetRotation *= Quaternion.Euler(-hitReactionPitch * backwardLean * hitAmount, 0f, -sidewaysLean * hitReactionRoll * hitAmount);
+                    targetScale = new Vector3(
+                        targetScale.x * (1f + hitAmount * 0.06f),
+                        targetScale.y * (1f - hitAmount * 0.08f),
+                        targetScale.z);
+                    break;
+                case "Head":
+                    targetPosition += new Vector3(localHitDirection.x * 0.02f, -bodyDrop * 0.35f, localHitDirection.z * 0.05f) * hitAmount;
+                    targetRotation *= Quaternion.Euler(-hitReactionPitch * 0.65f * backwardLean * hitAmount, 0f, -sidewaysLean * hitReactionRoll * 0.8f * hitAmount);
+                    break;
+                case "LeftArm":
+                    targetRotation *= Quaternion.Euler(hitAmount * 18f, 0f, -10f * hitAmount - sidewaysLean * 7f * hitAmount);
+                    targetPosition += new Vector3(localHitDirection.x * 0.015f, -bodyDrop * 0.18f, localHitDirection.z * 0.03f) * hitAmount;
+                    break;
+                case "RightArm":
+                    targetRotation *= Quaternion.Euler(hitAmount * 22f, 0f, 10f * hitAmount - sidewaysLean * 7f * hitAmount);
+                    targetPosition += new Vector3(localHitDirection.x * 0.015f, -bodyDrop * 0.18f, localHitDirection.z * 0.03f) * hitAmount;
+                    break;
+                case "LeftLeg":
+                case "RightLeg":
+                    targetPosition += new Vector3(0f, bodyDrop * 0.14f, -hitAmount * 0.03f);
+                    targetRotation *= Quaternion.Euler(hitAmount * 16f, 0f, 0f);
+                    break;
+            }
+        }
+
         private void UpdateCameraInput()
         {
             var lookDelta = ReadLookInput();
             _cameraYaw += lookDelta.x * cameraSensitivity;
-            _cameraPitch = Mathf.Clamp(_cameraPitch - lookDelta.y * cameraSensitivity, minCameraPitch, maxCameraPitch);
+            var yDirection = _invertYAxis ? 1f : -1f;
+            _cameraPitch = Mathf.Clamp(_cameraPitch + lookDelta.y * cameraSensitivity * yDirection, minCameraPitch, maxCameraPitch);
         }
 
         private void UpdateThirdPersonCamera()
@@ -839,6 +977,14 @@ namespace PlayerBlock
 
             var lookHeight = cameraLookHeight;
             var pivotPosition = transform.position + Vector3.up * lookHeight;
+            if (_screenShakeEnabled && _cameraShakeTimer > 0f)
+            {
+                _cameraShakeTimer = Mathf.Max(0f, _cameraShakeTimer - Time.deltaTime);
+                var normalized = _cameraShakeDuration > 0f ? _cameraShakeTimer / _cameraShakeDuration : 0f;
+                var shakeOffset = UnityEngine.Random.insideUnitSphere * (_cameraShakeAmplitude * normalized);
+                pivotPosition += shakeOffset;
+            }
+
             if (cameraPivot != null)
             {
                 cameraPivot.position = pivotPosition;
@@ -855,6 +1001,70 @@ namespace PlayerBlock
                 cameraRotation,
                 sharpness);
             playerCamera.fieldOfView = Mathf.Lerp(playerCamera.fieldOfView, Mathf.Lerp(normalFieldOfView, aimFieldOfView, _aimBlend), sharpness);
+        }
+
+        private void CacheCameraOffsetProfile()
+        {
+            var offsetMagnitude = _cameraFollowOffset.magnitude;
+            if (offsetMagnitude <= 0.001f)
+            {
+                _cameraBaseOffsetDirection = new Vector3(0f, 0.4f, -0.92f).normalized;
+                _cameraBaseOffsetDistance = 4f;
+                return;
+            }
+
+            _cameraBaseOffsetDirection = _cameraFollowOffset.normalized;
+            _cameraBaseOffsetDistance = offsetMagnitude;
+        }
+
+        private void UpdateCameraDistanceScale()
+        {
+            if (_cameraBaseOffsetDistance <= 0.001f)
+            {
+                return;
+            }
+
+            _cameraFollowOffset = _cameraBaseOffsetDirection * (_cameraBaseOffsetDistance * _cameraDistanceScale);
+        }
+
+        private void TriggerCameraShake(float amplitude, float duration)
+        {
+            if (!_screenShakeEnabled)
+            {
+                return;
+            }
+
+            _cameraShakeAmplitude = Mathf.Max(_cameraShakeAmplitude, amplitude);
+            _cameraShakeDuration = Mathf.Max(_cameraShakeDuration, duration);
+            _cameraShakeTimer = Mathf.Max(_cameraShakeTimer, duration);
+        }
+
+        private void ApplyHitReaction(float damageAmount, Vector3 hitDirection)
+        {
+            var normalizedDamage = Mathf.Clamp01(damageAmount / 10f);
+            var recoilStrength = Mathf.Lerp(hitRecoilImpulse * 0.9f, hitRecoilImpulse * 1.5f, normalizedDamage);
+            _damageImpulse += hitDirection * recoilStrength;
+            _damageImpulse = Vector3.ClampMagnitude(_damageImpulse, hitRecoilImpulse * 2.1f);
+            _lastHitDirection = hitDirection;
+            _hitReactionDurationCurrent = Mathf.Max(_hitReactionDurationCurrent, hitReactionDuration * Mathf.Lerp(0.9f, 1.2f, normalizedDamage));
+            _hitReactionTimer = Mathf.Max(_hitReactionTimer, _hitReactionDurationCurrent);
+            _landImpact = Mathf.Max(_landImpact, 0.28f + normalizedDamage * 0.38f);
+            TriggerCameraShake(
+                hitShakeAmplitude * Mathf.Lerp(0.85f, 1.35f, normalizedDamage),
+                hitShakeDuration * Mathf.Lerp(0.9f, 1.15f, normalizedDamage));
+        }
+
+        private Vector3 GetHitReactionDirection(Vector3 hitWorldPosition)
+        {
+            var hitDirection = transform.position - hitWorldPosition;
+            hitDirection.y = 0f;
+            if (hitDirection.sqrMagnitude <= 0.0001f)
+            {
+                hitDirection = -transform.forward;
+                hitDirection.y = 0f;
+            }
+
+            return hitDirection.sqrMagnitude > 0.0001f ? hitDirection.normalized : Vector3.back;
         }
 
         private void UpdateHealthBar()

@@ -41,11 +41,17 @@ namespace PlayerBlock
         [SerializeField] private float impactScale = 0.22f;
         [SerializeField] private float rangedStopDistanceBuffer = 0.55f;
 
+        [Header("Physics")]
+        [SerializeField] private float fallGravityMultiplier = 1.8f;
+        [SerializeField] private float maxFallSpeed = 24f;
+
         [Header("Visual")]
         [SerializeField] private float moveAnimationSpeed = 6.5f;
         [SerializeField] private float moveBobHeight = 0.07f;
         [SerializeField] private float moveArmSwing = 44f;
         [SerializeField] private float moveLegSwing = 38f;
+        [SerializeField] private float shieldForwardOffset = 0.12f;
+        [SerializeField] private float spearLengthMultiplier = 0.6666667f;
 
         private static readonly List<ShadowMinionController> ActiveMinions = new List<ShadowMinionController>(32);
         private static Material SharedMaterial;
@@ -103,6 +109,10 @@ namespace PlayerBlock
             }
 
             _health = Mathf.Max(0f, _health - amount);
+            CombatVfxUtility.SpawnDamageNumber(
+                transform.position + Vector3.up * hitHeightOffset,
+                amount,
+                new Color(1f, 0.84f, 0.34f, 1f));
             CombatVfxUtility.SpawnImpactBurst(
                 transform.position + Vector3.up * hitHeightOffset,
                 Vector3.up,
@@ -153,6 +163,50 @@ namespace PlayerBlock
             TakeDamage(amount);
         }
 
+        public Vector3 GetShieldBlockPoint()
+        {
+            if (_shield != null)
+            {
+                return _shield.position + transform.forward * 0.08f;
+            }
+
+            return transform.position + transform.forward * 0.58f + Vector3.up * 1.12f;
+        }
+
+        public bool TryBlockIncomingMeleeAttack(Vector3 attackOrigin, Vector3 attackPoint)
+        {
+            if (!HasShield || _isDead || _health <= 0f)
+            {
+                return false;
+            }
+
+            var blockPoint = GetShieldBlockPoint();
+            var attackVector = attackPoint - attackOrigin;
+            var attackLength = attackVector.magnitude;
+            if (attackLength < 0.001f)
+            {
+                attackVector = transform.forward;
+                attackLength = 0.001f;
+            }
+
+            var direction = attackVector / attackLength;
+            var toBlock = blockPoint - attackOrigin;
+            var along = Vector3.Dot(toBlock, direction);
+            if (along < 0f || along > attackLength)
+            {
+                return false;
+            }
+
+            var closestPoint = attackOrigin + direction * along;
+            if (Vector3.Distance(closestPoint, blockPoint) > 0.95f)
+            {
+                return false;
+            }
+
+            CombatVfxUtility.SpawnImpactBurst(blockPoint, direction, new Color(0.08f, 0.1f, 0.14f, 1f), 0.22f, 6);
+            return true;
+        }
+
         private void OnEnable()
         {
             if (!ActiveMinions.Contains(this))
@@ -172,6 +226,7 @@ namespace PlayerBlock
             _rigidbody = GetComponent<Rigidbody>();
             if (_rigidbody != null)
             {
+                ApplyRigidbodyTuning();
                 _rigidbody.useGravity = true;
                 _rigidbody.interpolation = RigidbodyInterpolation.None;
                 _rigidbody.collisionDetectionMode = CollisionDetectionMode.Discrete;
@@ -231,6 +286,11 @@ namespace PlayerBlock
             UpdateVisuals(deltaTime);
         }
 
+        private void FixedUpdate()
+        {
+            ApplyExtraFallAcceleration();
+        }
+
         private void RefreshCachedColliders()
         {
             _cachedColliders = GetComponentsInChildren<Collider>(true);
@@ -256,7 +316,7 @@ namespace PlayerBlock
 
                 _spear.localPosition = GetHeldSpearLocalPosition();
                 _spear.localRotation = GetHeldSpearLocalRotation();
-                _spear.localScale = GetInverseLocalScale(_rightArm);
+                _spear.localScale = GetInverseLocalScale(_rightArm) * spearLengthMultiplier;
             }
 
             _spearTip = _spear != null ? _spear.Find("Tip") : null;
@@ -540,7 +600,7 @@ namespace PlayerBlock
             }
             else if (_playerTarget != null && _playerTarget.Health > 0f)
             {
-                _playerTarget.TakeDamage(attackDamage);
+                _playerTarget.TakeDamage(attackDamage, transform.position + Vector3.up * hitHeightOffset);
             }
             else
             {
@@ -602,7 +662,7 @@ namespace PlayerBlock
             }
             else if (_playerTarget != null && _playerTarget.Health > 0f)
             {
-                _playerTarget.TakeDamage(attackDamage);
+                _playerTarget.TakeDamage(attackDamage, spearStart);
             }
             else
             {
@@ -761,6 +821,41 @@ namespace PlayerBlock
             _rigidbody.linearVelocity = new Vector3(horizontal.x, currentVelocity.y, horizontal.z);
         }
 
+        private void ApplyRigidbodyTuning()
+        {
+            if (_rigidbody == null)
+            {
+                return;
+            }
+
+            _rigidbody.mass = minionKind == ShadowMinionKind.Brute
+                ? 32f
+                : minionKind == ShadowMinionKind.Shielded
+                    ? 22f
+                    : 18f;
+            _rigidbody.linearDamping = 0.15f;
+            _rigidbody.angularDamping = 8f;
+            _rigidbody.maxAngularVelocity = 2f;
+        }
+
+        private void ApplyExtraFallAcceleration()
+        {
+            if (_rigidbody == null)
+            {
+                return;
+            }
+
+            var velocity = _rigidbody.linearVelocity;
+            if (velocity.y >= 0f)
+            {
+                return;
+            }
+
+            var extraGravity = Mathf.Abs(Physics.gravity.y) * Mathf.Max(0f, fallGravityMultiplier - 1f);
+            velocity.y = Mathf.Max(velocity.y - extraGravity * Time.fixedDeltaTime, -maxFallSpeed);
+            _rigidbody.linearVelocity = velocity;
+        }
+
         private void FaceDirection(Vector3 flatDirection, float deltaTime)
         {
             if (flatDirection.sqrMagnitude < 0.001f)
@@ -815,9 +910,9 @@ namespace PlayerBlock
                 var spearAimDirection = GetDesiredSpearAimDirection();
                 ApplyRotation(_leftArm, _leftArmBaseRotation * Quaternion.Euler(-swing * 34f - moveSwing * (moveArmSwing * 0.55f), 0f, -12f - swing * 4f));
                 ApplyRotation(_rightArm, _rightArmBaseRotation * Quaternion.Euler(-34f - spearForward * 48f - moveSwing * (moveArmSwing * 0.22f), 0f, 10f + spearForward * 12f));
-                ApplyPosition(_shield, _shieldBasePosition + new Vector3(-0.05f - spearForward * 0.06f, moveBob * 0.3f, 0.01f - spearForward * 0.04f));
+                ApplyPosition(_shield, _shieldBasePosition + new Vector3(-0.05f - spearForward * 0.06f, moveBob * 0.3f + 0.02f, shieldForwardOffset - spearForward * 0.04f));
                 ApplyRotation(_shield, _shieldBaseRotation * Quaternion.Euler(0f, 0f, Mathf.Sin(_moveAnimationTime * 0.5f) * 2f + spearForward * 3f));
-                ApplyPosition(_spear, _spearBasePosition + new Vector3(0.08f + spearForward * 0.12f, 0.02f, 0.12f + spearForward * 0.5f));
+                ApplyPosition(_spear, _spearBasePosition + new Vector3(0.08f + spearForward * 0.12f, 0.08f, 0.12f + spearForward * 0.5f));
                 ApplyRotation(_spear, GetAimedSpearRotation(spearAimDirection, spearForward));
             }
             else
@@ -878,12 +973,12 @@ namespace PlayerBlock
 
         private static Vector3 GetHeldSpearLocalPosition()
         {
-            return new Vector3(0.2f, -0.3f, 0.54f);
+            return new Vector3(0.2f, -0.22f, 0.54f);
         }
 
         private static Quaternion GetHeldSpearLocalRotation()
         {
-            return Quaternion.Euler(-4f, 8f, -2f);
+            return Quaternion.Euler(-8f, 8f, -2f);
         }
 
         private static Vector3 GetInverseLocalScale(Transform target)

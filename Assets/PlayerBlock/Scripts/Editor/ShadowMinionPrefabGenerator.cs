@@ -186,10 +186,10 @@ namespace PlayerBlock.Editor
             collider.center = colliderCenter;
 
             var rigidbody = root.AddComponent<Rigidbody>();
-            rigidbody.mass = kind == ShadowMinionKind.Brute ? 7f : 3.5f;
+            rigidbody.mass = kind == ShadowMinionKind.Brute ? 32f : kind == ShadowMinionKind.Shielded ? 22f : 18f;
             rigidbody.useGravity = true;
-            rigidbody.linearDamping = 0.8f;
-            rigidbody.angularDamping = 6f;
+            rigidbody.linearDamping = 0.15f;
+            rigidbody.angularDamping = 8f;
             rigidbody.interpolation = RigidbodyInterpolation.None;
             rigidbody.collisionDetectionMode = CollisionDetectionMode.Discrete;
             rigidbody.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
@@ -212,6 +212,7 @@ namespace PlayerBlock.Editor
             {
                 CreateBlock(root.transform, "Shield", new Vector3(-0.48f, 1.15f, 0.44f) * scaleMultiplier, new Vector3(0.9f, 1.28f, 0.18f) * scaleMultiplier, material);
                 CreateBlock(root.transform, "ShieldGrip", new Vector3(-0.2f, 1.0f, 0.48f) * scaleMultiplier, new Vector3(0.24f, 0.46f, 0.12f) * scaleMultiplier, material);
+                EnsureShieldCollider(root.transform.Find("Shield"));
                 var rightArm = root.transform.Find("RightArm");
                 CreateSpear(rightArm != null ? rightArm : root.transform, scaleMultiplier, material);
                 root.transform.Find("Shield")?.gameObject.AddComponent<ShadowMinionShield>();
@@ -335,6 +336,45 @@ namespace PlayerBlock.Editor
             {
                 tipRenderer.sharedMaterial = material;
             }
+        }
+
+        private static void EnsureShieldCollider(Transform shield)
+        {
+            if (shield == null)
+            {
+                return;
+            }
+
+            var collider = shield.GetComponent<BoxCollider>();
+            if (collider == null)
+            {
+                collider = shield.gameObject.AddComponent<BoxCollider>();
+            }
+
+            collider.isTrigger = false;
+
+            var renderer = shield.GetComponent<Renderer>();
+            if (renderer != null)
+            {
+                var bounds = renderer.bounds;
+                var scale = shield.lossyScale;
+                var localCenter = shield.InverseTransformPoint(bounds.center);
+                var localSize = new Vector3(
+                    Mathf.Abs(scale.x) > 0.0001f ? bounds.size.x / Mathf.Abs(scale.x) : 1f,
+                    Mathf.Abs(scale.y) > 0.0001f ? bounds.size.y / Mathf.Abs(scale.y) : 1f,
+                    Mathf.Abs(scale.z) > 0.0001f ? bounds.size.z / Mathf.Abs(scale.z) : 1f);
+
+                localSize.x = Mathf.Max(localSize.x * 1.05f, 1.15f);
+                localSize.y = Mathf.Max(localSize.y * 1.05f, 1.65f);
+                localSize.z = Mathf.Max(localSize.z * 4.5f, 0.7f);
+
+                collider.center = localCenter + new Vector3(0f, 0f, 0.12f);
+                collider.size = localSize;
+                return;
+            }
+
+            collider.center = new Vector3(0f, 0f, 0.12f);
+            collider.size = new Vector3(1.25f, 1.85f, 2.2f);
         }
 
         private static Vector3 GetInverseLocalScale(Transform target)

@@ -1,5 +1,11 @@
+using System.Collections;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem.UI;
+#endif
 
 namespace PlayerBlock
 {
@@ -18,6 +24,20 @@ namespace PlayerBlock
         [SerializeField] private Text selectedShadowLabel;
         [SerializeField] private Text statusMessageLabel;
         [SerializeField] private Image statusMessagePanel;
+        [SerializeField] private Text endPanelLabel;
+        [SerializeField] private Image endPanel;
+        [SerializeField] private Text endPanelConfirmLabel;
+        [SerializeField] private Image endPanelConfirmButton;
+        [SerializeField] private Text endPanelMainMenuLabel;
+        [SerializeField] private Image endPanelMainMenuButton;
+        [SerializeField] private Image endFlashOverlay;
+        [SerializeField] private Text deathPanelTitleLabel;
+        [SerializeField] private Image deathPanel;
+        [SerializeField] private Text deathPanelRetryLabel;
+        [SerializeField] private Image deathPanelRetryButton;
+        [SerializeField] private Text deathPanelMainMenuLabel;
+        [SerializeField] private Image deathPanelMainMenuButton;
+        [SerializeField] private string mainMenuSceneName;
         [SerializeField] private Image meleeShadowSlot;
         [SerializeField] private Image rangedShadowSlot;
         [SerializeField] private Image shieldShadowSlot;
@@ -32,6 +52,8 @@ namespace PlayerBlock
         [SerializeField] private Text emptyHandsCostLabel;
         [SerializeField] private Image crosshairCooldownFill;
         [SerializeField] private Image[] phaseSegments;
+
+        private Coroutine _endSequenceCoroutine;
 
         public static CombatHud Instance
         {
@@ -139,6 +161,144 @@ namespace PlayerBlock
             }
         }
 
+        public void SetEndPanelVisible(bool visible)
+        {
+            EnsureUi();
+            if (endPanel != null)
+            {
+                var animator = UiEffectsUtility.EnsureEndAnimator(endPanel.gameObject);
+                if (animator != null)
+                {
+                    if (visible)
+                    {
+                        animator.Show();
+                    }
+                    else
+                    {
+                        animator.Hide();
+                    }
+
+                    UiEffectsUtility.EnsureButtonEffects(endPanel.transform);
+                    return;
+                }
+
+                endPanel.gameObject.SetActive(visible);
+            }
+        }
+
+        public void SetDeathPanelVisible(bool visible)
+        {
+            EnsureUi();
+            if (deathPanel != null)
+            {
+                var animator = UiEffectsUtility.EnsureDeathAnimator(deathPanel.gameObject);
+                if (animator != null)
+                {
+                    if (visible)
+                    {
+                        animator.Show();
+                    }
+                    else
+                    {
+                        animator.Hide();
+                    }
+
+                    UiEffectsUtility.EnsureButtonEffects(deathPanel.transform);
+                    return;
+                }
+
+                deathPanel.gameObject.SetActive(visible);
+            }
+        }
+
+        public void ShowDeathPanel()
+        {
+            EnsureUi();
+            if (deathPanel != null && deathPanel.gameObject.activeSelf)
+            {
+                return;
+            }
+
+            if (_endSequenceCoroutine != null)
+            {
+                StopCoroutine(_endSequenceCoroutine);
+                _endSequenceCoroutine = null;
+            }
+
+            SetEndPanelVisible(false);
+            SetDeathPanelVisible(true);
+            SetBossVisible(false);
+            SetStatusMessage(string.Empty, false);
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+            Time.timeScale = 0f;
+        }
+
+        public void RetryCurrentScene()
+        {
+            Time.timeScale = 1f;
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+            SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+        }
+
+        public void PlayEndingSequence()
+        {
+            EnsureUi();
+
+            if (_endSequenceCoroutine != null)
+            {
+                StopCoroutine(_endSequenceCoroutine);
+            }
+
+            _endSequenceCoroutine = StartCoroutine(PlayEndingSequenceRoutine());
+        }
+
+        public void ReturnToMainMenu()
+        {
+            if (string.IsNullOrWhiteSpace(mainMenuSceneName))
+            {
+                Debug.LogWarning("Main menu scene name is empty.");
+                return;
+            }
+
+            Time.timeScale = 1f;
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+            SceneManager.LoadScene(mainMenuSceneName);
+        }
+
+        public void LoadNextLevel()
+        {
+            Time.timeScale = 1f;
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+
+            var nextSceneIndex = SceneManager.GetActiveScene().buildIndex + 1;
+            if (nextSceneIndex >= 0 && nextSceneIndex < SceneManager.sceneCountInBuildSettings)
+            {
+                SceneManager.LoadScene(nextSceneIndex);
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(mainMenuSceneName))
+            {
+                SceneManager.LoadScene(mainMenuSceneName);
+                return;
+            }
+
+            Debug.LogWarning("No next scene is available and main menu scene name is empty.");
+        }
+
+        public void SetEndPanelMessage(string message)
+        {
+            EnsureUi();
+            if (endPanelLabel != null)
+            {
+                endPanelLabel.text = message;
+            }
+        }
+
         public void SetSelectedShadowInventory(CombatSelectionKind selectedKind, float meleeCost, float rangedCost, float shieldCost)
         {
             EnsureUi();
@@ -209,6 +369,10 @@ namespace PlayerBlock
 
             _instance = this;
             EnsureUi();
+            UiEffectsUtility.EnsureSceneButtonEffects();
+            EnsureEventSystem();
+            HookEndConfirmButton();
+            HookDeathButtons();
         }
 
         public void EnsureEditableUi()
@@ -225,6 +389,19 @@ namespace PlayerBlock
                 && selectedShadowLabel != null
                 && statusMessageLabel != null
                 && statusMessagePanel != null
+                && endPanelLabel != null
+                && endPanel != null
+                && endPanelConfirmLabel != null
+                && endPanelConfirmButton != null
+                && endPanelMainMenuLabel != null
+                && endPanelMainMenuButton != null
+                && endFlashOverlay != null
+                && deathPanelTitleLabel != null
+                && deathPanel != null
+                && deathPanelRetryLabel != null
+                && deathPanelRetryButton != null
+                && deathPanelMainMenuLabel != null
+                && deathPanelMainMenuButton != null
                 && meleeShadowSlot != null
                 && rangedShadowSlot != null
                 && shieldShadowSlot != null
@@ -283,7 +460,32 @@ namespace PlayerBlock
                 BuildStatusMessage(transform);
             }
 
+            if (endFlashOverlay == null)
+            {
+                BuildEndFlashOverlay(transform);
+            }
+
+            if (deathPanel == null || deathPanelTitleLabel == null || deathPanelRetryButton == null || deathPanelMainMenuButton == null)
+            {
+                BuildDeathPanel(transform);
+            }
+
+            if (endPanel != null)
+            {
+                UiEffectsUtility.EnsureEndAnimator(endPanel.gameObject);
+                UiEffectsUtility.EnsureButtonEffects(endPanel.transform);
+            }
+
+            if (deathPanel != null)
+            {
+                UiEffectsUtility.EnsureDeathAnimator(deathPanel.gameObject);
+                UiEffectsUtility.EnsureButtonEffects(deathPanel.transform);
+            }
+
             HideLegacyCrosshairCooldownPanel();
+            HookEndConfirmButton();
+            HookEndMainMenuButton();
+            HookDeathButtons();
         }
 
         private void BuildPlayerPanel(Transform parent)
@@ -458,6 +660,81 @@ namespace PlayerBlock
             SetStatusMessage(string.Empty, false);
         }
 
+        private void BuildEndFlashOverlay(Transform parent)
+        {
+            endFlashOverlay = CreateImage(parent, "EndFlashOverlay", Color.white);
+            var rect = endFlashOverlay.rectTransform;
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+            endFlashOverlay.gameObject.SetActive(false);
+        }
+
+        private void BuildDeathPanel(Transform parent)
+        {
+            var prefab = LoadDeathPanelPrefab();
+            if (prefab != null)
+            {
+                var instance = Instantiate(prefab, parent, false);
+                instance.name = "DeathPanel";
+                deathPanel = instance.GetComponent<Image>();
+                if (deathPanel == null)
+                {
+                    deathPanel = instance.AddComponent<Image>();
+                }
+                deathPanel.gameObject.SetActive(false);
+
+                FindExistingUiReferences();
+                HookDeathButtons();
+                return;
+            }
+
+            deathPanel = CreateImage(parent, "DeathPanel", new Color(0.035f, 0.02f, 0.02f, 0.92f));
+            var fallbackRect = deathPanel.rectTransform;
+            fallbackRect.anchorMin = new Vector2(0.5f, 0.5f);
+            fallbackRect.anchorMax = new Vector2(0.5f, 0.5f);
+            fallbackRect.pivot = new Vector2(0.5f, 0.5f);
+            fallbackRect.anchoredPosition = Vector2.zero;
+            fallbackRect.sizeDelta = new Vector2(1520f, 640f);
+            deathPanel.gameObject.SetActive(false);
+
+            deathPanelTitleLabel = CreateText(deathPanel.transform, "DeathPanelTitleLabel", "YOU DIED", 72, TextAnchor.MiddleCenter);
+            SetRect(deathPanelTitleLabel.rectTransform, new Vector2(0f, 168f), new Vector2(1200f, 88f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
+            deathPanelTitleLabel.color = new Color(1f, 0.86f, 0.82f, 1f);
+            deathPanelTitleLabel.gameObject.SetActive(false);
+
+            BuildDeathButton(deathPanel.transform, "RetryButton", "RETRY", new Vector2(-236f, -78f), out deathPanelRetryButton, out deathPanelRetryLabel);
+            BuildDeathButton(deathPanel.transform, "MainMenuButton", "MAIN MENU", new Vector2(236f, -78f), out deathPanelMainMenuButton, out deathPanelMainMenuLabel);
+        }
+
+        private void BuildDeathButton(Transform parent, string buttonName, string labelText, Vector2 position, out Image button, out Text label)
+        {
+            button = CreateImage(parent, buttonName, new Color(0.16f, 0.16f, 0.17f, 0.96f));
+            button.raycastTarget = true;
+            var rect = button.rectTransform;
+            rect.anchorMin = new Vector2(0.5f, 0f);
+            rect.anchorMax = new Vector2(0.5f, 0f);
+            rect.pivot = new Vector2(0.5f, 0f);
+            rect.anchoredPosition = position;
+            rect.sizeDelta = new Vector2(300f, 88f);
+            button.gameObject.SetActive(false);
+
+            if (buttonName == "RetryButton")
+            {
+                button.gameObject.AddComponent<DeathRetryHandler>();
+            }
+            else
+            {
+                button.gameObject.AddComponent<DeathMainMenuHandler>();
+            }
+
+            label = CreateText(button.transform, $"{buttonName}Label", labelText, 34, TextAnchor.MiddleCenter);
+            SetRect(label.rectTransform, Vector2.zero, new Vector2(260f, 52f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
+            label.color = new Color(1f, 0.96f, 0.86f, 1f);
+            label.gameObject.SetActive(false);
+        }
+
         private void BuildShadowSlot(Transform parent, CombatSelectionKind kind, Vector2 position)
         {
             string slotName;
@@ -597,6 +874,19 @@ namespace PlayerBlock
             selectedShadowLabel = selectedShadowLabel != null ? selectedShadowLabel : FindText("ShadowSelectionPanel/SelectedShadowLabel");
             statusMessageLabel = statusMessageLabel != null ? statusMessageLabel : FindText("StatusMessagePanel/StatusMessageLabel");
             statusMessagePanel = statusMessagePanel != null ? statusMessagePanel : FindImage("StatusMessagePanel");
+            endPanelLabel = endPanelLabel != null ? endPanelLabel : FindText("EndPanel/EndPanelLabel");
+            endPanel = endPanel != null ? endPanel : FindImage("EndPanel");
+            endPanelConfirmLabel = endPanelConfirmLabel != null ? endPanelConfirmLabel : FindText("EndPanel/EndConfirmButton/EndConfirmButtonLabel");
+            endPanelConfirmButton = endPanelConfirmButton != null ? endPanelConfirmButton : FindImage("EndPanel/EndConfirmButton");
+            endPanelMainMenuLabel = endPanelMainMenuLabel != null ? endPanelMainMenuLabel : FindText("EndPanel/MainMenuButton/MainMenuButtonLabel");
+            endPanelMainMenuButton = endPanelMainMenuButton != null ? endPanelMainMenuButton : FindImage("EndPanel/MainMenuButton");
+            endFlashOverlay = endFlashOverlay != null ? endFlashOverlay : FindImage("EndFlashOverlay");
+            deathPanelTitleLabel = deathPanelTitleLabel != null ? deathPanelTitleLabel : FindText("DeathPanel/DeathPanelTitleLabel");
+            deathPanel = deathPanel != null ? deathPanel : FindImage("DeathPanel");
+            deathPanelRetryLabel = deathPanelRetryLabel != null ? deathPanelRetryLabel : FindText("DeathPanel/RetryButton/RetryButtonLabel");
+            deathPanelRetryButton = deathPanelRetryButton != null ? deathPanelRetryButton : FindImage("DeathPanel/RetryButton");
+            deathPanelMainMenuLabel = deathPanelMainMenuLabel != null ? deathPanelMainMenuLabel : FindText("DeathPanel/MainMenuButton/MainMenuButtonLabel");
+            deathPanelMainMenuButton = deathPanelMainMenuButton != null ? deathPanelMainMenuButton : FindImage("DeathPanel/MainMenuButton");
             meleeShadowSlot = meleeShadowSlot != null ? meleeShadowSlot : FindImage("ShadowSelectionPanel/MeleeShadowSlot");
             rangedShadowSlot = rangedShadowSlot != null ? rangedShadowSlot : FindImage("ShadowSelectionPanel/RangedShadowSlot");
             shieldShadowSlot = shieldShadowSlot != null ? shieldShadowSlot : FindImage("ShadowSelectionPanel/ShieldShadowSlot");
@@ -634,6 +924,134 @@ namespace PlayerBlock
         {
             var child = transform.Find(path);
             return child != null ? child.GetComponent<Text>() : null;
+        }
+
+        private void EnsureEventSystem()
+        {
+            var eventSystem = FindFirstObjectByType<EventSystem>();
+            if (eventSystem == null)
+            {
+                var eventSystemObject = new GameObject("EventSystem");
+                eventSystem = eventSystemObject.AddComponent<EventSystem>();
+#if ENABLE_INPUT_SYSTEM
+                eventSystemObject.AddComponent<InputSystemUIInputModule>();
+#endif
+                return;
+            }
+
+#if ENABLE_INPUT_SYSTEM
+            if (eventSystem.GetComponent<InputSystemUIInputModule>() == null)
+            {
+                eventSystem.gameObject.AddComponent<InputSystemUIInputModule>();
+            }
+#endif
+
+            var legacyModule = eventSystem.GetComponent<StandaloneInputModule>();
+            if (legacyModule != null)
+            {
+                legacyModule.enabled = false;
+            }
+        }
+
+        private void HookEndConfirmButton()
+        {
+            if (endPanelConfirmButton == null)
+            {
+                return;
+            }
+
+            var clickHandler = endPanelConfirmButton.GetComponent<EndMenuConfirmHandler>();
+            if (clickHandler == null)
+            {
+                clickHandler = endPanelConfirmButton.gameObject.AddComponent<EndMenuConfirmHandler>();
+            }
+        }
+
+        private void HookEndMainMenuButton()
+        {
+            if (endPanelMainMenuButton == null)
+            {
+                return;
+            }
+
+            var clickHandler = endPanelMainMenuButton.GetComponent<EndMenuMainMenuHandler>();
+            if (clickHandler == null)
+            {
+                clickHandler = endPanelMainMenuButton.gameObject.AddComponent<EndMenuMainMenuHandler>();
+            }
+        }
+
+        private void HookDeathButtons()
+        {
+            if (deathPanelRetryButton != null)
+            {
+                var retryHandler = deathPanelRetryButton.GetComponent<DeathRetryHandler>();
+                if (retryHandler == null)
+                {
+                    deathPanelRetryButton.gameObject.AddComponent<DeathRetryHandler>();
+                }
+            }
+
+            if (deathPanelMainMenuButton != null)
+            {
+                var mainMenuHandler = deathPanelMainMenuButton.GetComponent<DeathMainMenuHandler>();
+                if (mainMenuHandler == null)
+                {
+                    deathPanelMainMenuButton.gameObject.AddComponent<DeathMainMenuHandler>();
+                }
+            }
+        }
+
+        private GameObject LoadDeathPanelPrefab()
+        {
+            var prefab = Resources.Load<GameObject>("PlayerBlock/UI/DeathPanel");
+            return prefab;
+        }
+
+        private IEnumerator PlayEndingSequenceRoutine()
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+
+            if (endFlashOverlay != null)
+            {
+                endFlashOverlay.gameObject.SetActive(true);
+                var flashColor = endFlashOverlay.color;
+                flashColor.a = 0f;
+                endFlashOverlay.color = flashColor;
+
+                const float flashRiseDuration = 0.16f;
+                for (var elapsed = 0f; elapsed < flashRiseDuration; elapsed += Time.deltaTime)
+                {
+                    flashColor.a = Mathf.Clamp01(elapsed / flashRiseDuration);
+                    endFlashOverlay.color = flashColor;
+                    yield return null;
+                }
+
+                flashColor.a = 1f;
+                endFlashOverlay.color = flashColor;
+            }
+
+            SetEndPanelVisible(true);
+            yield return new WaitForSeconds(0.15f);
+
+            if (endFlashOverlay != null)
+            {
+                var flashColor = endFlashOverlay.color;
+                const float flashFadeDuration = 0.35f;
+                for (var elapsed = 0f; elapsed < flashFadeDuration; elapsed += Time.deltaTime)
+                {
+                    flashColor.a = Mathf.Clamp01(1f - elapsed / flashFadeDuration);
+                    endFlashOverlay.color = flashColor;
+                    yield return null;
+                }
+
+                flashColor.a = 0f;
+                endFlashOverlay.color = flashColor;
+                endFlashOverlay.gameObject.SetActive(false);
+            }
+
+            _endSequenceCoroutine = null;
         }
 
         private void HideLegacyCrosshairCooldownPanel()
@@ -715,6 +1133,94 @@ namespace PlayerBlock
             rect.pivot = new Vector2(0f, 0.5f);
             rect.offsetMin = Vector2.zero;
             rect.offsetMax = Vector2.zero;
+        }
+
+        private sealed class EndMenuConfirmHandler : MonoBehaviour, IPointerClickHandler, ISubmitHandler
+        {
+            public void OnPointerClick(PointerEventData eventData)
+            {
+                Activate();
+            }
+
+            public void OnSubmit(BaseEventData eventData)
+            {
+                Activate();
+            }
+
+            private static void Activate()
+            {
+                var hud = CombatHud.Instance;
+                if (hud != null)
+                {
+                    hud.LoadNextLevel();
+                }
+            }
+        }
+
+        private sealed class EndMenuMainMenuHandler : MonoBehaviour, IPointerClickHandler, ISubmitHandler
+        {
+            public void OnPointerClick(PointerEventData eventData)
+            {
+                Activate();
+            }
+
+            public void OnSubmit(BaseEventData eventData)
+            {
+                Activate();
+            }
+
+            private static void Activate()
+            {
+                var hud = CombatHud.Instance;
+                if (hud != null)
+                {
+                    hud.ReturnToMainMenu();
+                }
+            }
+        }
+
+        private sealed class DeathRetryHandler : MonoBehaviour, IPointerClickHandler, ISubmitHandler
+        {
+            public void OnPointerClick(PointerEventData eventData)
+            {
+                Activate();
+            }
+
+            public void OnSubmit(BaseEventData eventData)
+            {
+                Activate();
+            }
+
+            private static void Activate()
+            {
+                var hud = CombatHud.Instance;
+                if (hud != null)
+                {
+                    hud.RetryCurrentScene();
+                }
+            }
+        }
+
+        private sealed class DeathMainMenuHandler : MonoBehaviour, IPointerClickHandler, ISubmitHandler
+        {
+            public void OnPointerClick(PointerEventData eventData)
+            {
+                Activate();
+            }
+
+            public void OnSubmit(BaseEventData eventData)
+            {
+                Activate();
+            }
+
+            private static void Activate()
+            {
+                var hud = CombatHud.Instance;
+                if (hud != null)
+                {
+                    hud.ReturnToMainMenu();
+                }
+            }
         }
     }
 }

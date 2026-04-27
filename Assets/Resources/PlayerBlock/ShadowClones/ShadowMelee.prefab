@@ -339,7 +339,7 @@ Rigidbody:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 8391237605472226318}
   serializedVersion: 5
-  m_Mass: 4
+  m_Mass: 18
   m_LinearDamping: 0.8
   m_AngularDamping: 6
   m_CenterOfMass: {x: 0, y: 0, z: 0}
@@ -391,7 +391,7 @@ MonoBehaviour:
   meleeHitForwardRange: 2.9
   meleeHitVerticalRange: 1.65
   meleeSpawnStunDuration: 0.25
-  meleeAttackWindupDuration: 0.3
+  meleeAttackWindupDuration: 0.6
   meleeAttackDamage: 3
   rangedAttackDamage: 1
   rangedProjectileSpeed: 15

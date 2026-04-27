@@ -611,7 +611,7 @@ Rigidbody:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 4639768082964282850}
   serializedVersion: 5
-  m_Mass: 4
+  m_Mass: 20
   m_LinearDamping: 0.8
   m_AngularDamping: 6
   m_CenterOfMass: {x: 0, y: 0, z: 0}
@@ -646,7 +646,7 @@ MonoBehaviour:
   lifeTime: 18
   rangedAttackRange: 18
   moveSpeed: 3.6
-  shieldMoveSpeed: 2.15
+  shieldMoveSpeed: 2.05
   shieldHoldRange: 2.55
   rangedPreferredDistance: 14
   stopDistanceBuffer: 0.25
@@ -663,12 +663,12 @@ MonoBehaviour:
   meleeHitForwardRange: 2.9
   meleeHitVerticalRange: 1.65
   meleeSpawnStunDuration: 0.25
-  meleeAttackWindupDuration: 0.3
-  meleeAttackDamage: 3
-  rangedAttackDamage: 1
+  meleeAttackWindupDuration: 0.34
+  meleeAttackDamage: 2
+  rangedAttackDamage: 0
   rangedProjectileSpeed: 15
-  meleeAttackCooldown: 1
-  rangedAttackCooldown: 0.85
+  meleeAttackCooldown: 1.75
+  rangedAttackCooldown: 999
   rangedAttackAnimationDuration: 0.22
   crushHorizontalRadius: 1.15
   crushHeightTolerance: 0.25

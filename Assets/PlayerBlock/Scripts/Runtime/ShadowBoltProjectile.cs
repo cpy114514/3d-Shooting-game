@@ -45,37 +45,8 @@ namespace PlayerBlock
                 return;
             }
 
-            _hasImpacted = true;
             var contact = collision.GetContact(0);
-            var boss = collision.collider.GetComponentInParent<GiantBossController>();
-            if (boss != null)
-            {
-                boss.TakeDamage(damage);
-                CombatVfxUtility.SpawnImpactBurst(contact.point, contact.normal, new Color(0.1f, 0.06f, 0.14f, 1f), 0.18f, 5);
-            }
-            else
-            {
-                var shield = collision.collider.GetComponentInParent<ShadowMinionShield>();
-                if (shield != null)
-                {
-                    CombatVfxUtility.SpawnImpactBurst(contact.point, contact.normal, new Color(0.08f, 0.05f, 0.12f, 1f), 0.18f, 5);
-                    Destroy(gameObject);
-                    return;
-                }
-
-                var minion = collision.collider.GetComponentInParent<ShadowMinionController>();
-                if (minion != null && minion.IsAlive)
-                {
-                    minion.TakeDamage(damage);
-                    CombatVfxUtility.SpawnImpactBurst(contact.point, contact.normal, new Color(0.08f, 0.05f, 0.12f, 1f), 0.18f, 5);
-                }
-                else
-                {
-                    CombatVfxUtility.SpawnDustBurst(contact.point, contact.normal, 0.14f, 4);
-                }
-            }
-
-            Destroy(gameObject);
+            ResolveHit(collision.collider, contact.point, contact.normal);
         }
 
         private void OnTriggerEnter(Collider other)
@@ -85,39 +56,50 @@ namespace PlayerBlock
                 return;
             }
 
-            var boss = other.GetComponentInParent<GiantBossController>();
-            var minion = boss == null ? other.GetComponentInParent<ShadowMinionController>() : null;
-            if (boss == null && (minion == null || !minion.IsAlive))
+            var impactNormal = _rigidbody != null && _rigidbody.linearVelocity.sqrMagnitude > 0.001f
+                ? -_rigidbody.linearVelocity.normalized
+                : -transform.forward;
+            ResolveHit(other, other.ClosestPoint(transform.position), impactNormal);
+        }
+
+        private void ResolveHit(Collider other, Vector3 impactPoint, Vector3 impactNormal)
+        {
+            if (_hasImpacted || other == null)
             {
                 return;
             }
 
-            var impactNormal = _rigidbody != null && _rigidbody.linearVelocity.sqrMagnitude > 0.001f
-                ? -_rigidbody.linearVelocity.normalized
-                : -transform.forward;
-
-            var shield = boss == null ? other.GetComponentInParent<ShadowMinionShield>() : null;
+            var shield = other.GetComponentInParent<ShadowMinionShield>();
             if (shield != null)
             {
                 _hasImpacted = true;
-                var shieldImpactPoint = other.ClosestPoint(transform.position);
-                CombatVfxUtility.SpawnImpactBurst(shieldImpactPoint, impactNormal, new Color(0.08f, 0.05f, 0.12f, 1f), 0.18f, 5);
+                CombatVfxUtility.SpawnImpactBurst(impactPoint, impactNormal, new Color(0.08f, 0.05f, 0.12f, 1f), 0.18f, 5);
+                Destroy(gameObject);
+                return;
+            }
+
+            var boss = other.GetComponentInParent<GiantBossController>();
+            if (boss != null)
+            {
+                _hasImpacted = true;
+                boss.TakeDamage(damage);
+                CombatVfxUtility.SpawnImpactBurst(impactPoint, impactNormal, new Color(0.1f, 0.06f, 0.14f, 1f), 0.18f, 5);
+                Destroy(gameObject);
+                return;
+            }
+
+            var minion = other.GetComponentInParent<ShadowMinionController>();
+            if (minion != null && minion.IsAlive)
+            {
+                _hasImpacted = true;
+                minion.TakeDamage(damage);
+                CombatVfxUtility.SpawnImpactBurst(impactPoint, impactNormal, new Color(0.08f, 0.05f, 0.12f, 1f), 0.18f, 5);
                 Destroy(gameObject);
                 return;
             }
 
             _hasImpacted = true;
-            var impactPoint = other.ClosestPoint(transform.position);
-            if (boss != null)
-            {
-                boss.TakeDamage(damage);
-            }
-            else
-            {
-                minion.TakeDamage(damage);
-            }
-
-            CombatVfxUtility.SpawnImpactBurst(impactPoint, impactNormal, new Color(0.1f, 0.06f, 0.14f, 1f), 0.18f, 5);
+            CombatVfxUtility.SpawnDustBurst(impactPoint, impactNormal, 0.14f, 4);
             Destroy(gameObject);
         }
     }
