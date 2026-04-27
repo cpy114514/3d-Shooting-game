@@ -8,10 +8,10 @@ namespace PlayerBlock
     [DisallowMultipleComponent]
     public sealed class UiButtonFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler, ISelectHandler, IDeselectHandler
     {
-        [SerializeField] private float hoverScale = 1.025f;
+        [SerializeField] private float hoverScale = 1.05f;
         [SerializeField] private float pressedScale = 0.985f;
         [SerializeField] private float transitionSpeed = 18f;
-        [SerializeField] private Color hoverTint = new Color(1f, 0.985f, 0.94f, 1f);
+        [SerializeField] private Color hoverTint = new Color(1f, 0.995f, 0.97f, 1f);
         [SerializeField] private Color pressedTint = new Color(0.93f, 0.95f, 0.98f, 1f);
 
         private RectTransform _rectTransform;
@@ -21,6 +21,7 @@ namespace PlayerBlock
         private Color _baseColor;
         private Vector3 _targetScale;
         private Color _targetColor;
+        private bool _darkenOnHover;
         private Coroutine _pulseRoutine;
         private bool _hovered;
         private bool _pressed;
@@ -32,6 +33,7 @@ namespace PlayerBlock
             _button = GetComponent<Button>();
             _baseScale = transform.localScale == Vector3.zero ? Vector3.one : transform.localScale;
             _targetScale = _baseScale;
+            _darkenOnHover = IsUnderSettingsPanel(transform);
 
             if (_graphic != null)
             {
@@ -50,7 +52,7 @@ namespace PlayerBlock
             if (_button != null && !_button.interactable)
             {
                 _targetScale = _baseScale;
-                _targetColor = _baseColor * 0.85f;
+                _targetColor = GetDisabledTint();
             }
 
             transform.localScale = Vector3.Lerp(transform.localScale, _targetScale, Time.unscaledDeltaTime * transitionSpeed);
@@ -104,21 +106,21 @@ namespace PlayerBlock
             if (_button != null && !_button.interactable)
             {
                 _targetScale = _baseScale;
-                _targetColor = _baseColor * 0.85f;
+                _targetColor = GetDisabledTint();
                 return;
             }
 
             if (_pressed)
             {
                 _targetScale = _baseScale * pressedScale;
-                _targetColor = pressedTint;
+                _targetColor = _darkenOnHover ? GetDarkPressedTint() : pressedTint;
                 return;
             }
 
             if (_hovered)
             {
                 _targetScale = _baseScale * hoverScale;
-                _targetColor = hoverTint;
+                _targetColor = _darkenOnHover ? GetDarkHoverTint() : hoverTint;
                 return;
             }
 
@@ -163,6 +165,36 @@ namespace PlayerBlock
 
             RefreshTargets();
             _pulseRoutine = null;
+        }
+
+        private Color GetDarkHoverTint()
+        {
+            return new Color(_baseColor.r * 0.84f, _baseColor.g * 0.84f, _baseColor.b * 0.84f, _baseColor.a);
+        }
+
+        private Color GetDarkPressedTint()
+        {
+            return new Color(_baseColor.r * 0.72f, _baseColor.g * 0.72f, _baseColor.b * 0.72f, _baseColor.a);
+        }
+
+        private Color GetDisabledTint()
+        {
+            return new Color(_baseColor.r * 0.68f, _baseColor.g * 0.68f, _baseColor.b * 0.68f, _baseColor.a);
+        }
+
+        private static bool IsUnderSettingsPanel(Transform node)
+        {
+            while (node != null)
+            {
+                if (node.name == "SettingsPanel")
+                {
+                    return true;
+                }
+
+                node = node.parent;
+            }
+
+            return false;
         }
     }
 }

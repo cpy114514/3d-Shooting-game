@@ -27,6 +27,7 @@ namespace PlayerBlock
         private Text _indexLabel;
         private Text _nextLabel;
         private Text _backLabel;
+        private Text _closeLabel;
         private Button _nextButton;
         private Button _backButton;
         private Button _closeButton;
@@ -78,6 +79,7 @@ namespace PlayerBlock
             if (IsStartScene(scene))
             {
                 BindMenuTutorialButton();
+                BindPanelButtons();
                 HidePanelInstant();
                 return;
             }
@@ -115,6 +117,7 @@ namespace PlayerBlock
                 _closeButton = FindChildRecursive(_tutorialPanel.transform, "TutorialCloseButton")?.GetComponent<Button>();
                 _backLabel = FindChildRecursive(_tutorialPanel.transform, "TutorialBackButtonLabel")?.GetComponent<Text>();
                 _nextLabel = FindChildRecursive(_tutorialPanel.transform, "TutorialNextButtonLabel")?.GetComponent<Text>();
+                _closeLabel = FindChildRecursive(_tutorialPanel.transform, "TutorialCloseButtonLabel")?.GetComponent<Text>();
             }
         }
 
@@ -242,6 +245,11 @@ namespace PlayerBlock
                 _nextLabel.text = _pageIndex >= Pages.Length - 1
                     ? (_openedFromGameplay ? "START" : "DONE")
                     : "NEXT";
+            }
+
+            if (_closeLabel != null)
+            {
+                _closeLabel.text = _openedFromGameplay ? "SKIP" : "CLOSE";
             }
         }
 

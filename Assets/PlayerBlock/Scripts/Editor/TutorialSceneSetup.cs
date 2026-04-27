@@ -12,7 +12,8 @@ namespace PlayerBlock.Editor
     [InitializeOnLoad]
     public static class TutorialSceneSetup
     {
-        private const string CompletionKey = "LanShooter.TutorialSceneSetup.V1";
+        private const string CompletionKey = "LanShooter.TutorialSceneSetup.V2";
+        private const string TutorialPanelPrefabPath = "Assets/PlayerBlock/UI/TutorialPanel.prefab";
 
         static TutorialSceneSetup()
         {
@@ -75,14 +76,13 @@ namespace PlayerBlock.Editor
         {
             var changed = false;
             var isStartScene = scene.name == "start";
-            var needsGameplayPanel = scene.name != "start";
 
             if (isStartScene)
             {
                 changed |= EnsureTutorialButton(scene);
+                changed |= EnsureTutorialPanel(scene, gameplayStyle: false);
             }
-
-            if (needsGameplayPanel || isStartScene)
+            else
             {
                 changed |= EnsureTutorialPanel(scene, isStartScene);
             }
@@ -151,41 +151,58 @@ namespace PlayerBlock.Editor
                 return false;
             }
 
-            var panelObject = new GameObject("TutorialPanel", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(CanvasGroup), typeof(UiPanelAnimator));
-            Undo.RegisterCreatedObjectUndo(panelObject, "Create Tutorial Panel");
-            panelObject.layer = 5;
-            panelObject.transform.SetParent(parent, false);
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(TutorialPanelPrefabPath);
+            GameObject panelObject;
+            if (prefab != null)
+            {
+                panelObject = (GameObject)PrefabUtility.InstantiatePrefab(prefab, scene);
+                Undo.RegisterCreatedObjectUndo(panelObject, "Create Tutorial Panel");
+                panelObject.transform.SetParent(parent, false);
+            }
+            else
+            {
+                panelObject = new GameObject("TutorialPanel", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(CanvasGroup), typeof(UiPanelAnimator));
+                Undo.RegisterCreatedObjectUndo(panelObject, "Create Tutorial Panel");
+                panelObject.layer = 5;
+                panelObject.transform.SetParent(parent, false);
+            }
 
             var rect = panelObject.GetComponent<RectTransform>();
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = Vector2.zero;
-            rect.sizeDelta = gameplayStyle ? new Vector2(1180f, 700f) : new Vector2(1280f, 760f);
+            if (rect != null)
+            {
+                rect.anchorMin = new Vector2(0.5f, 0.5f);
+                rect.anchorMax = new Vector2(0.5f, 0.5f);
+                rect.pivot = new Vector2(0.5f, 0.5f);
+                rect.anchoredPosition = Vector2.zero;
+                rect.sizeDelta = gameplayStyle ? new Vector2(1180f, 700f) : new Vector2(1280f, 760f);
+            }
 
-            var image = panelObject.GetComponent<Image>();
-            image.color = new Color(0.04f, 0.05f, 0.07f, 0.95f);
-            image.raycastTarget = true;
+            if (prefab == null)
+            {
+                var image = panelObject.GetComponent<Image>();
+                image.color = new Color(0.04f, 0.05f, 0.07f, 0.95f);
+                image.raycastTarget = true;
 
-            var title = CreateText(panelObject.transform, "TutorialTitleLabel", "TUTORIAL", 86, TextAnchor.MiddleCenter);
-            SetStretchText(title.rectTransform, new Vector2(80f, 64f), new Vector2(-80f, -560f));
-            title.color = new Color(1f, 0.93f, 0.78f, 1f);
+                var title = CreateText(panelObject.transform, "TutorialTitleLabel", "TUTORIAL", 86, TextAnchor.MiddleCenter);
+                SetStretchText(title.rectTransform, new Vector2(80f, 64f), new Vector2(-80f, -560f));
+                title.color = new Color(1f, 0.93f, 0.78f, 1f);
 
-            var body = CreateText(panelObject.transform, "TutorialBodyLabel", string.Empty, 54, TextAnchor.UpperCenter);
-            SetStretchText(body.rectTransform, new Vector2(110f, 180f), new Vector2(-110f, -220f));
-            body.color = new Color(0.9f, 0.94f, 1f, 1f);
+                var body = CreateText(panelObject.transform, "TutorialBodyLabel", string.Empty, 54, TextAnchor.UpperCenter);
+                SetStretchText(body.rectTransform, new Vector2(110f, 180f), new Vector2(-110f, -220f));
+                body.color = new Color(0.9f, 0.94f, 1f, 1f);
 
-            var index = CreateText(panelObject.transform, "TutorialIndexLabel", string.Empty, 36, TextAnchor.MiddleCenter);
-            SetRect(index.rectTransform, new Vector2(0f, -210f), new Vector2(320f, 46f));
-            index.color = new Color(0.72f, 0.79f, 0.9f, 1f);
+                var index = CreateText(panelObject.transform, "TutorialIndexLabel", string.Empty, 36, TextAnchor.MiddleCenter);
+                SetRect(index.rectTransform, new Vector2(0f, -210f), new Vector2(320f, 46f));
+                index.color = new Color(0.72f, 0.79f, 0.9f, 1f);
 
-            CreateTutorialButton(panelObject.transform, "TutorialBackButton", new Vector2(-240f, -292f), "BACK");
-            CreateTutorialButton(panelObject.transform, "TutorialNextButton", new Vector2(240f, -292f), "NEXT");
-            CreateTutorialButton(panelObject.transform, "TutorialCloseButton", new Vector2(0f, -380f), gameplayStyle ? "SKIP" : "CLOSE");
+                CreateTutorialButton(panelObject.transform, "TutorialBackButton", new Vector2(-240f, -292f), "BACK");
+                CreateTutorialButton(panelObject.transform, "TutorialNextButton", new Vector2(240f, -292f), "NEXT");
+                CreateTutorialButton(panelObject.transform, "TutorialCloseButton", new Vector2(0f, -380f), gameplayStyle ? "SKIP" : "CLOSE");
 
-            var animator = panelObject.GetComponent<UiPanelAnimator>();
-            animator.Configure(-36f, 0.94f, 6f, 0.006f, 0.18f, 0.12f);
-            animator.Hide(true);
+                var animator = panelObject.GetComponent<UiPanelAnimator>();
+                animator.Configure(-36f, 0.94f, 6f, 0.006f, 0.18f, 0.12f);
+                animator.Hide(true);
+            }
 
             EditorUtility.SetDirty(panelObject);
             return true;

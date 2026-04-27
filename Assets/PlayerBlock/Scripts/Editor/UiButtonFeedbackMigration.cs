@@ -129,9 +129,9 @@ namespace PlayerBlock.Editor
         private static void Apply(PlayerBlock.UiButtonFeedback feedback)
         {
             var serializedObject = new SerializedObject(feedback);
-            SetFloat(serializedObject, "hoverScale", 1.025f);
+            SetFloat(serializedObject, "hoverScale", 1.05f);
             SetFloat(serializedObject, "pressedScale", 0.985f);
-            SetColor(serializedObject, "hoverTint", new Color(1f, 0.985f, 0.94f, 1f));
+            SetColor(serializedObject, "hoverTint", new Color(1f, 0.995f, 0.97f, 1f));
             SetColor(serializedObject, "pressedTint", new Color(0.93f, 0.95f, 0.98f, 1f));
             serializedObject.ApplyModifiedPropertiesWithoutUndo();
         }
