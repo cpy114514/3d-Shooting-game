@@ -553,6 +553,11 @@ namespace PlayerBlock
             if (defeatSeal == null)
             {
                 var sealObject = GameObject.Find("seal");
+                if (sealObject == null)
+                {
+                    sealObject = GameObject.Find("Seal");
+                }
+
                 if (sealObject != null)
                 {
                     defeatSeal = sealObject.transform;

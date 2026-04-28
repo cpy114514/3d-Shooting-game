@@ -80,8 +80,13 @@ namespace PlayerBlock
         [SerializeField] private float hitShakeAmplitude = 0.32f;
         [SerializeField] private float hitShakeDuration = 0.2f;
 
+        [Header("Anti Stuck")]
+        [SerializeField] private float wallPushOutPadding = 0.04f;
+        [SerializeField] private int wallPushOutIterations = 3;
+
         private static readonly List<BlockPlayerController> ActivePlayers = new List<BlockPlayerController>(1);
         private static readonly Collider[] PunchHitBuffer = new Collider[16];
+        private static readonly Collider[] WallPushBuffer = new Collider[24];
 
         public static Camera ActiveCamera
         {
@@ -101,6 +106,7 @@ namespace PlayerBlock
         }
 
         private CharacterController _controller;
+        private CapsuleCollider _recoveryCollider;
         private Transform _rightArm;
         private Vector3 _horizontalVelocity;
         private Vector3 _verticalVelocity;
@@ -227,6 +233,7 @@ namespace PlayerBlock
         private void Awake()
         {
             _controller = GetComponent<CharacterController>();
+            EnsureRecoveryCollider();
             if (visualRoot == null)
             {
                 visualRoot = transform.Find("Visual");
@@ -411,6 +418,7 @@ namespace PlayerBlock
 
             var motion = (horizontalVelocity + _damageImpulse + _verticalVelocity) * deltaTime;
             _controller.Move(motion);
+            ResolveWallStuck();
         }
 
         private void LateUpdate()
@@ -1084,6 +1092,142 @@ namespace PlayerBlock
                 meleeShadowEnergyCost,
                 rangedShadowEnergyCost,
                 shieldShadowEnergyCost);
+        }
+
+        private void EnsureRecoveryCollider()
+        {
+            _recoveryCollider = GetComponent<CapsuleCollider>();
+            if (_recoveryCollider == null)
+            {
+                _recoveryCollider = gameObject.AddComponent<CapsuleCollider>();
+            }
+
+            _recoveryCollider.isTrigger = true;
+            _recoveryCollider.hideFlags = HideFlags.HideInInspector;
+            SyncRecoveryCollider();
+        }
+
+        private void SyncRecoveryCollider()
+        {
+            if (_controller == null || _recoveryCollider == null)
+            {
+                return;
+            }
+
+            _recoveryCollider.direction = 1;
+            _recoveryCollider.center = _controller.center;
+            _recoveryCollider.radius = Mathf.Max(0.01f, _controller.radius * 0.98f);
+            _recoveryCollider.height = Mathf.Max(_controller.height, _recoveryCollider.radius * 2f + 0.02f);
+        }
+
+        private void ResolveWallStuck()
+        {
+            if (_controller == null || _recoveryCollider == null)
+            {
+                return;
+            }
+
+            SyncRecoveryCollider();
+            var iterations = Mathf.Max(1, wallPushOutIterations);
+            for (var iteration = 0; iteration < iterations; iteration++)
+            {
+                if (!TryGetWallPushOut(out var pushOut))
+                {
+                    break;
+                }
+
+                if (pushOut.sqrMagnitude <= 0.000001f)
+                {
+                    break;
+                }
+
+                _controller.Move(pushOut);
+
+                var pushDirection = pushOut.normalized;
+                _horizontalVelocity = Vector3.ProjectOnPlane(_horizontalVelocity, pushDirection);
+                _dashVelocity = Vector3.ProjectOnPlane(_dashVelocity, pushDirection);
+                _damageImpulse = Vector3.ProjectOnPlane(_damageImpulse, pushDirection);
+
+                if (pushOut.y > 0f && _verticalVelocity.y < 0f)
+                {
+                    _verticalVelocity.y = 0f;
+                }
+            }
+        }
+
+        private bool TryGetWallPushOut(out Vector3 pushOut)
+        {
+            pushOut = Vector3.zero;
+            if (_recoveryCollider == null)
+            {
+                return false;
+            }
+
+            GetWorldCapsulePoints(_recoveryCollider, out var point0, out var point1, out var radius);
+            var hitCount = Physics.OverlapCapsuleNonAlloc(
+                point0,
+                point1,
+                radius,
+                WallPushBuffer,
+                Physics.DefaultRaycastLayers,
+                QueryTriggerInteraction.Ignore);
+
+            var totalPush = Vector3.zero;
+            var pushCount = 0;
+            for (var i = 0; i < hitCount; i++)
+            {
+                var collider = WallPushBuffer[i];
+                if (collider == null || collider == _recoveryCollider || collider.transform.IsChildOf(transform))
+                {
+                    continue;
+                }
+
+                if (Physics.ComputePenetration(
+                    _recoveryCollider,
+                    transform.position,
+                    transform.rotation,
+                    collider,
+                    collider.transform.position,
+                    collider.transform.rotation,
+                    out var direction,
+                    out var distance))
+                {
+                    totalPush += direction * (distance + wallPushOutPadding);
+                    pushCount++;
+                }
+            }
+
+            if (pushCount <= 0)
+            {
+                return false;
+            }
+
+            pushOut = totalPush / pushCount;
+            return pushOut.sqrMagnitude > 0.000001f;
+        }
+
+        private static void GetWorldCapsulePoints(CapsuleCollider capsule, out Vector3 point0, out Vector3 point1, out float radius)
+        {
+            var transform = capsule.transform;
+            var lossyScale = transform.lossyScale;
+            var axis = capsule.direction == 0 ? transform.right : capsule.direction == 1 ? transform.up : transform.forward;
+            var axisScale = capsule.direction == 0
+                ? Mathf.Abs(lossyScale.x)
+                : capsule.direction == 1
+                    ? Mathf.Abs(lossyScale.y)
+                    : Mathf.Abs(lossyScale.z);
+            var lateralScale = capsule.direction == 0
+                ? Mathf.Max(Mathf.Abs(lossyScale.y), Mathf.Abs(lossyScale.z))
+                : capsule.direction == 1
+                    ? Mathf.Max(Mathf.Abs(lossyScale.x), Mathf.Abs(lossyScale.z))
+                    : Mathf.Max(Mathf.Abs(lossyScale.x), Mathf.Abs(lossyScale.y));
+
+            radius = capsule.radius * lateralScale;
+            var scaledHeight = Mathf.Max(capsule.height * axisScale, radius * 2f);
+            var center = transform.TransformPoint(capsule.center);
+            var halfLength = Mathf.Max(0f, scaledHeight * 0.5f - radius);
+            point0 = center + axis * halfLength;
+            point1 = center - axis * halfLength;
         }
 
         private bool CanFireSelectedShadow()

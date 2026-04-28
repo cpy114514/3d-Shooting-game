@@ -11,6 +11,7 @@ namespace PlayerBlock
         private GameObject _settingsPanel;
         private Transform _settingsRoot;
         private UiPanelAnimator _settingsAnimator;
+        private bool _syncingControls;
 
         public event Action Closed;
 
@@ -95,18 +96,91 @@ namespace PlayerBlock
 
         private void BindButtons()
         {
-            Bind("QualityButton", () => BrowserGameSettings.CycleGraphicsQuality(1));
+            BindDropdown("QualityDropdown", (value) => BrowserGameSettings.SetGraphicsQuality((BrowserGameSettings.GraphicsQualityLevel)value));
+            BindSlider("MouseSensitivitySlider", BrowserGameSettings.SetMouseSensitivity);
+            BindSlider("MasterVolumeSlider", BrowserGameSettings.SetMasterVolume);
+            BindSlider("MusicVolumeSlider", BrowserGameSettings.SetMusicVolume);
+            BindSlider("SfxVolumeSlider", BrowserGameSettings.SetSfxVolume);
+            BindSlider("CameraDistanceSlider", BrowserGameSettings.SetCameraDistance);
+
+            if (FindSettingsObject("QualityDropdown") == null)
+            {
+                Bind("QualityButton", () => BrowserGameSettings.CycleGraphicsQuality(1));
+            }
+
             Bind("ShadowsButton", BrowserGameSettings.ToggleShadows);
             Bind("ShowFpsButton", BrowserGameSettings.ToggleShowFps);
-            Bind("MouseSensitivityButton", () => BrowserGameSettings.SetMouseSensitivity(BrowserGameSettings.MouseSensitivity + 0.01f));
+            if (FindSettingsObject("MouseSensitivitySlider") == null)
+            {
+                Bind("MouseSensitivityButton", () => BrowserGameSettings.SetMouseSensitivity(BrowserGameSettings.MouseSensitivity + 0.01f));
+            }
+
             Bind("InvertYAxisButton", BrowserGameSettings.ToggleInvertYAxis);
-            Bind("MasterVolumeButton", () => BrowserGameSettings.SetMasterVolume(BrowserGameSettings.MasterVolume + 0.05f));
-            Bind("MusicVolumeButton", () => BrowserGameSettings.SetMusicVolume(BrowserGameSettings.MusicVolume + 0.05f));
-            Bind("SfxVolumeButton", () => BrowserGameSettings.SetSfxVolume(BrowserGameSettings.SfxVolume + 0.05f));
-            Bind("CameraDistanceButton", () => BrowserGameSettings.SetCameraDistance(BrowserGameSettings.CameraDistance + 0.05f));
+            if (FindSettingsObject("MasterVolumeSlider") == null)
+            {
+                Bind("MasterVolumeButton", () => BrowserGameSettings.SetMasterVolume(BrowserGameSettings.MasterVolume + 0.05f));
+            }
+
+            if (FindSettingsObject("MusicVolumeSlider") == null)
+            {
+                Bind("MusicVolumeButton", () => BrowserGameSettings.SetMusicVolume(BrowserGameSettings.MusicVolume + 0.05f));
+            }
+
+            if (FindSettingsObject("SfxVolumeSlider") == null)
+            {
+                Bind("SfxVolumeButton", () => BrowserGameSettings.SetSfxVolume(BrowserGameSettings.SfxVolume + 0.05f));
+            }
+
+            if (FindSettingsObject("CameraDistanceSlider") == null)
+            {
+                Bind("CameraDistanceButton", () => BrowserGameSettings.SetCameraDistance(BrowserGameSettings.CameraDistance + 0.05f));
+            }
+
             Bind("ScreenShakeButton", BrowserGameSettings.ToggleScreenShake);
             Bind("ResetButton", BrowserGameSettings.ResetDefaults);
             Bind("BackButton", ClosePanel);
+        }
+
+        private void BindDropdown(string objectName, UnityEngine.Events.UnityAction<int> action)
+        {
+            var dropdownObject = FindSettingsObject(objectName);
+            var dropdown = dropdownObject != null ? dropdownObject.GetComponent<Dropdown>() : null;
+            if (dropdown == null || action == null)
+            {
+                return;
+            }
+
+            dropdown.onValueChanged.RemoveAllListeners();
+            dropdown.onValueChanged.AddListener(value =>
+            {
+                if (_syncingControls)
+                {
+                    return;
+                }
+
+                action.Invoke(value);
+            });
+        }
+
+        private void BindSlider(string objectName, UnityEngine.Events.UnityAction<float> action)
+        {
+            var sliderObject = FindSettingsObject(objectName);
+            var slider = sliderObject != null ? sliderObject.GetComponent<Slider>() : null;
+            if (slider == null || action == null)
+            {
+                return;
+            }
+
+            slider.onValueChanged.RemoveAllListeners();
+            slider.onValueChanged.AddListener(value =>
+            {
+                if (_syncingControls)
+                {
+                    return;
+                }
+
+                action.Invoke(value);
+            });
         }
 
         private void Bind(string buttonObjectName, UnityEngine.Events.UnityAction action)
@@ -129,16 +203,72 @@ namespace PlayerBlock
 
         private void SyncUi()
         {
-            SetText("QualityButtonLabel", "QUALITY  " + BrowserGameSettings.GraphicsQuality.ToString().ToUpperInvariant());
+            _syncingControls = true;
+            SetDropdown("QualityDropdown", (int)BrowserGameSettings.GraphicsQuality);
+            SetSlider("MouseSensitivitySlider", BrowserGameSettings.MouseSensitivity);
+            SetSlider("MasterVolumeSlider", BrowserGameSettings.MasterVolume);
+            SetSlider("MusicVolumeSlider", BrowserGameSettings.MusicVolume);
+            SetSlider("SfxVolumeSlider", BrowserGameSettings.SfxVolume);
+            SetSlider("CameraDistanceSlider", BrowserGameSettings.CameraDistance);
+            _syncingControls = false;
+
+            SetText("QualityButtonLabel", FindSettingsObject("QualityDropdown") != null
+                ? "QUALITY"
+                : "QUALITY  " + BrowserGameSettings.GraphicsQuality.ToString().ToUpperInvariant());
             SetText("ShadowsButtonLabel", "SHADOWS  " + (BrowserGameSettings.ShadowsEnabled ? "ON" : "OFF"));
             SetText("ShowFpsButtonLabel", "SHOW FPS  " + (BrowserGameSettings.ShowFps ? "ON" : "OFF"));
-            SetText("MouseSensitivityButtonLabel", "MOUSE SENSITIVITY  " + BrowserGameSettings.MouseSensitivity.ToString("0.00"));
+            SetText("MouseSensitivityButtonLabel", FindSettingsObject("MouseSensitivitySlider") != null
+                ? "MOUSE SENSITIVITY"
+                : "MOUSE SENSITIVITY  " + BrowserGameSettings.MouseSensitivity.ToString("0.00"));
+            SetText("MouseSensitivityValueLabel", BrowserGameSettings.MouseSensitivity.ToString("0.00"));
             SetText("InvertYAxisButtonLabel", "INVERT Y AXIS  " + (BrowserGameSettings.InvertYAxis ? "ON" : "OFF"));
-            SetText("MasterVolumeButtonLabel", "MASTER VOLUME  " + Mathf.RoundToInt(BrowserGameSettings.MasterVolume * 100f) + "%");
-            SetText("MusicVolumeButtonLabel", "MUSIC VOLUME  " + Mathf.RoundToInt(BrowserGameSettings.MusicVolume * 100f) + "%");
-            SetText("SfxVolumeButtonLabel", "SFX VOLUME  " + Mathf.RoundToInt(BrowserGameSettings.SfxVolume * 100f) + "%");
-            SetText("CameraDistanceButtonLabel", "CAMERA DISTANCE  " + BrowserGameSettings.CameraDistance.ToString("0.00") + "x");
+            SetText("MasterVolumeButtonLabel", FindSettingsObject("MasterVolumeSlider") != null
+                ? "MASTER VOLUME"
+                : "MASTER VOLUME  " + Mathf.RoundToInt(BrowserGameSettings.MasterVolume * 100f) + "%");
+            SetText("MasterVolumeValueLabel", Mathf.RoundToInt(BrowserGameSettings.MasterVolume * 100f) + "%");
+            SetText("MusicVolumeButtonLabel", FindSettingsObject("MusicVolumeSlider") != null
+                ? "MUSIC VOLUME"
+                : "MUSIC VOLUME  " + Mathf.RoundToInt(BrowserGameSettings.MusicVolume * 100f) + "%");
+            SetText("MusicVolumeValueLabel", Mathf.RoundToInt(BrowserGameSettings.MusicVolume * 100f) + "%");
+            SetText("SfxVolumeButtonLabel", FindSettingsObject("SfxVolumeSlider") != null
+                ? "SFX VOLUME"
+                : "SFX VOLUME  " + Mathf.RoundToInt(BrowserGameSettings.SfxVolume * 100f) + "%");
+            SetText("SfxVolumeValueLabel", Mathf.RoundToInt(BrowserGameSettings.SfxVolume * 100f) + "%");
+            SetText("CameraDistanceButtonLabel", FindSettingsObject("CameraDistanceSlider") != null
+                ? "CAMERA DISTANCE"
+                : "CAMERA DISTANCE  " + BrowserGameSettings.CameraDistance.ToString("0.00") + "x");
+            SetText("CameraDistanceValueLabel", BrowserGameSettings.CameraDistance.ToString("0.00") + "x");
             SetText("ScreenShakeButtonLabel", "SCREEN SHAKE  " + (BrowserGameSettings.ScreenShakeEnabled ? "ON" : "OFF"));
+        }
+
+        private void SetDropdown(string objectName, int value)
+        {
+            var dropdownObject = FindSettingsObject(objectName);
+            var dropdown = dropdownObject != null ? dropdownObject.GetComponent<Dropdown>() : null;
+            if (dropdown == null)
+            {
+                return;
+            }
+
+            if (dropdown.options == null || dropdown.options.Count == 0)
+            {
+                return;
+            }
+
+            dropdown.SetValueWithoutNotify(Mathf.Clamp(value, 0, dropdown.options.Count - 1));
+            dropdown.RefreshShownValue();
+        }
+
+        private void SetSlider(string objectName, float value)
+        {
+            var sliderObject = FindSettingsObject(objectName);
+            var slider = sliderObject != null ? sliderObject.GetComponent<Slider>() : null;
+            if (slider == null)
+            {
+                return;
+            }
+
+            slider.SetValueWithoutNotify(Mathf.Clamp(value, slider.minValue, slider.maxValue));
         }
 
         private void SetText(string objectName, string value)

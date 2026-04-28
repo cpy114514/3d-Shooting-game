@@ -245,6 +245,7 @@ namespace PlayerBlock
         public void PlayEndingSequence()
         {
             EnsureUi();
+            UnlockNextLevelFromCurrentScene();
 
             if (_endSequenceCoroutine != null)
             {
@@ -288,6 +289,27 @@ namespace PlayerBlock
             }
 
             Debug.LogWarning("No next scene is available and main menu scene name is empty.");
+        }
+
+        private static void UnlockNextLevelFromCurrentScene()
+        {
+            var sceneName = SceneManager.GetActiveScene().name;
+            if (TryGetLevelNumber(sceneName, out var levelNumber))
+            {
+                LevelProgress.UnlockLevel(levelNumber + 1);
+            }
+        }
+
+        private static bool TryGetLevelNumber(string sceneName, out int levelNumber)
+        {
+            levelNumber = 0;
+            const string prefix = "Maingame";
+            if (string.IsNullOrWhiteSpace(sceneName) || !sceneName.StartsWith(prefix))
+            {
+                return false;
+            }
+
+            return int.TryParse(sceneName.Substring(prefix.Length), out levelNumber) && levelNumber > 0;
         }
 
         public void SetEndPanelMessage(string message)
