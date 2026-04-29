@@ -9,7 +9,7 @@ namespace PlayerBlock.Editor
     [InitializeOnLoad]
     public static class SettingsControlsPrefabSetup
     {
-        private const string CompletionKey = "PlayerBlock.SettingsControlsPrefabSetup.V1";
+        private const string CompletionKey = "PlayerBlock.SettingsControlsPrefabSetup.V2";
         private const string SettingsPanelPrefabPath = "Assets/PlayerBlock/UI/SettingsPanel.prefab";
 
         static SettingsControlsPrefabSetup()
@@ -52,6 +52,7 @@ namespace PlayerBlock.Editor
             {
                 var changed = false;
                 changed |= EnsureQualityDropdown(root.transform);
+                changed |= EnsureResolutionDropdown(root.transform);
                 changed |= EnsureSliderRow(root.transform, "MouseSensitivityButton", "MouseSensitivitySlider", "MouseSensitivityValueLabel", 0.03f, 0.3f, 0.14f);
                 changed |= EnsureSliderRow(root.transform, "MasterVolumeButton", "MasterVolumeSlider", "MasterVolumeValueLabel", 0f, 1f, 1f);
                 changed |= EnsureSliderRow(root.transform, "MusicVolumeButton", "MusicVolumeSlider", "MusicVolumeValueLabel", 0f, 1f, 0.85f);
@@ -111,6 +112,87 @@ namespace PlayerBlock.Editor
                 new Dropdown.OptionData("High")
             };
             dropdown.value = 2;
+            dropdown.RefreshShownValue();
+            return true;
+        }
+
+        private static bool EnsureResolutionDropdown(Transform root)
+        {
+            var row = FindChild(root, "ResolutionButton");
+            if (row == null)
+            {
+                var sourceRow = FindChild(root, "QualityButton");
+                if (sourceRow == null)
+                {
+                    return false;
+                }
+
+                var clone = Object.Instantiate(sourceRow.gameObject, sourceRow.parent);
+                clone.name = "ResolutionButton";
+                clone.transform.SetSiblingIndex(sourceRow.GetSiblingIndex() + 1);
+                row = clone.transform;
+
+                var originalLabel = FindChild(row, "QualityButtonLabel");
+                if (originalLabel != null)
+                {
+                    originalLabel.name = "ResolutionButtonLabel";
+                }
+
+                var originalDropdown = FindChild(row, "QualityDropdown");
+                if (originalDropdown != null)
+                {
+                    originalDropdown.name = "ResolutionDropdown";
+                }
+            }
+
+            var dropdownObject = FindChild(row, "ResolutionDropdown");
+            if (dropdownObject == null)
+            {
+                return false;
+            }
+
+            DisableRowButtonHitTarget(row);
+            AdjustRowLabel(row, "ResolutionButtonLabel");
+
+            var image = dropdownObject.GetComponent<Image>();
+            if (image != null)
+            {
+                image.color = new Color(0.08f, 0.09f, 0.12f, 1f);
+                image.raycastTarget = true;
+            }
+
+            var label = FindChild(dropdownObject, "Label")?.GetComponent<Text>();
+            if (label != null)
+            {
+                label.color = new Color(1f, 0.95f, 0.84f, 1f);
+            }
+
+            var arrow = FindChild(dropdownObject, "Arrow")?.GetComponent<Text>();
+            if (arrow != null)
+            {
+                arrow.color = new Color(0.72f, 0.79f, 0.9f, 1f);
+            }
+
+            var template = FindChild(dropdownObject, "Template");
+            var dropdown = dropdownObject.GetComponent<Dropdown>();
+            if (dropdown == null || template == null)
+            {
+                return false;
+            }
+
+            dropdown.targetGraphic = image;
+            dropdown.captionText = label;
+            dropdown.itemText = FindChild(template, "Item Label")?.GetComponent<Text>();
+            dropdown.template = template.GetComponent<RectTransform>();
+            dropdown.options = new List<Dropdown.OptionData>();
+
+            var labels = PlayerBlock.BrowserGameSettings.GetResolutionLabels();
+            for (var i = 0; i < labels.Length; i++)
+            {
+                dropdown.options.Add(new Dropdown.OptionData(labels[i]));
+            }
+
+            dropdown.value = Mathf.Clamp(PlayerBlock.BrowserGameSettings.ResolutionIndex, 0, dropdown.options.Count - 1);
             dropdown.RefreshShownValue();
             return true;
         }

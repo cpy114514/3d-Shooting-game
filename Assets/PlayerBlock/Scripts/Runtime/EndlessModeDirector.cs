@@ -24,6 +24,8 @@ namespace PlayerBlock
         [SerializeField] private float spawnHeight = 4f;
         [SerializeField] private int spawnSearchAttempts = 24;
         [SerializeField] private float spawnEdgePadding = 1.2f;
+        [SerializeField] private Vector3 spawnClearanceHalfExtents = new Vector3(0.85f, 1.05f, 0.85f);
+        [SerializeField] private float spawnClearanceHeight = 1.15f;
 
         [Header("Enemy Scaling")]
         [SerializeField] private float healthGrowthPerWave = 0.12f;
@@ -221,8 +223,12 @@ namespace PlayerBlock
                     continue;
                 }
 
-                spawnPoint = hit.point + Vector3.up * 0.08f;
-                return true;
+                var candidate = hit.point + Vector3.up * 0.08f;
+                if (IsSpawnAreaClear(candidate, hit.collider))
+                {
+                    spawnPoint = candidate;
+                    return true;
+                }
             }
 
             spawnPoint = default;
@@ -249,6 +255,11 @@ namespace PlayerBlock
                     Mathf.Clamp(center.x, bounds.min.x + spawnEdgePadding, bounds.max.x - spawnEdgePadding),
                     bounds.max.y + 0.08f,
                     Mathf.Clamp(center.z, bounds.min.z + spawnEdgePadding, bounds.max.z - spawnEdgePadding));
+                if (!IsSpawnAreaClear(point, candidate))
+                {
+                    continue;
+                }
+
                 var distance = (point - center).sqrMagnitude;
                 if (distance < bestDistance)
                 {
@@ -260,6 +271,35 @@ namespace PlayerBlock
 
             spawnPoint = bestPoint;
             return found;
+        }
+
+        private bool IsSpawnAreaClear(Vector3 spawnPoint, Collider planeCollider)
+        {
+            var center = spawnPoint + Vector3.up * spawnClearanceHeight;
+            var overlaps = Physics.OverlapBox(
+                center,
+                spawnClearanceHalfExtents,
+                Quaternion.identity,
+                Physics.DefaultRaycastLayers,
+                QueryTriggerInteraction.Ignore);
+
+            for (var i = 0; i < overlaps.Length; i++)
+            {
+                var collider = overlaps[i];
+                if (collider == null)
+                {
+                    continue;
+                }
+
+                if (collider == planeCollider || collider.transform.IsChildOf(planeCollider.transform) || planeCollider.transform.IsChildOf(collider.transform))
+                {
+                    continue;
+                }
+
+                return false;
+            }
+
+            return true;
         }
 
         private bool IsValidSpawnPlane(Collider collider)

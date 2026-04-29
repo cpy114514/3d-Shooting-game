@@ -97,6 +97,7 @@ namespace PlayerBlock
         private void BindButtons()
         {
             BindDropdown("QualityDropdown", (value) => BrowserGameSettings.SetGraphicsQuality((BrowserGameSettings.GraphicsQualityLevel)value));
+            BindResolutionDropdown();
             BindSlider("MouseSensitivitySlider", BrowserGameSettings.SetMouseSensitivity);
             BindSlider("MasterVolumeSlider", BrowserGameSettings.SetMasterVolume);
             BindSlider("MusicVolumeSlider", BrowserGameSettings.SetMusicVolume);
@@ -106,6 +107,11 @@ namespace PlayerBlock
             if (FindSettingsObject("QualityDropdown") == null)
             {
                 Bind("QualityButton", () => BrowserGameSettings.CycleGraphicsQuality(1));
+            }
+
+            if (FindSettingsObject("ResolutionDropdown") == null)
+            {
+                Bind("ResolutionButton", () => BrowserGameSettings.SetResolutionIndex(BrowserGameSettings.ResolutionIndex + 1));
             }
 
             Bind("ShadowsButton", BrowserGameSettings.ToggleShadows);
@@ -205,6 +211,7 @@ namespace PlayerBlock
         {
             _syncingControls = true;
             SetDropdown("QualityDropdown", (int)BrowserGameSettings.GraphicsQuality);
+            SetResolutionDropdown();
             SetSlider("MouseSensitivitySlider", BrowserGameSettings.MouseSensitivity);
             SetSlider("MasterVolumeSlider", BrowserGameSettings.MasterVolume);
             SetSlider("MusicVolumeSlider", BrowserGameSettings.MusicVolume);
@@ -215,6 +222,9 @@ namespace PlayerBlock
             SetText("QualityButtonLabel", FindSettingsObject("QualityDropdown") != null
                 ? "QUALITY"
                 : "QUALITY  " + BrowserGameSettings.GraphicsQuality.ToString().ToUpperInvariant());
+            SetText("ResolutionButtonLabel", FindSettingsObject("ResolutionDropdown") != null
+                ? "RESOLUTION"
+                : "RESOLUTION  " + BrowserGameSettings.GetCurrentResolutionLabel());
             SetText("ShadowsButtonLabel", "SHADOWS  " + (BrowserGameSettings.ShadowsEnabled ? "ON" : "OFF"));
             SetText("ShowFpsButtonLabel", "SHOW FPS  " + (BrowserGameSettings.ShowFps ? "ON" : "OFF"));
             SetText("MouseSensitivityButtonLabel", FindSettingsObject("MouseSensitivitySlider") != null
@@ -256,6 +266,73 @@ namespace PlayerBlock
             }
 
             dropdown.SetValueWithoutNotify(Mathf.Clamp(value, 0, dropdown.options.Count - 1));
+            dropdown.RefreshShownValue();
+        }
+
+        private void BindResolutionDropdown()
+        {
+            var dropdownObject = FindSettingsObject("ResolutionDropdown");
+            var dropdown = dropdownObject != null ? dropdownObject.GetComponent<Dropdown>() : null;
+            if (dropdown == null)
+            {
+                return;
+            }
+
+            dropdown.ClearOptions();
+            dropdown.AddOptions(new System.Collections.Generic.List<string>(BrowserGameSettings.GetResolutionLabels()));
+            if (dropdown.options.Count == 0)
+            {
+                return;
+            }
+
+            dropdown.onValueChanged.RemoveAllListeners();
+            dropdown.onValueChanged.AddListener(value =>
+            {
+                if (_syncingControls)
+                {
+                    return;
+                }
+
+                BrowserGameSettings.SetResolutionIndex(value);
+            });
+        }
+
+        private void SetResolutionDropdown()
+        {
+            var dropdownObject = FindSettingsObject("ResolutionDropdown");
+            var dropdown = dropdownObject != null ? dropdownObject.GetComponent<Dropdown>() : null;
+            if (dropdown == null)
+            {
+                return;
+            }
+
+            var labels = BrowserGameSettings.GetResolutionLabels();
+            if (labels == null || labels.Length == 0)
+            {
+                return;
+            }
+
+            var currentLabels = dropdown.options;
+            var needsRefresh = currentLabels == null || currentLabels.Count != labels.Length;
+            if (!needsRefresh)
+            {
+                for (var i = 0; i < labels.Length; i++)
+                {
+                    if (currentLabels[i].text != labels[i])
+                    {
+                        needsRefresh = true;
+                        break;
+                    }
+                }
+            }
+
+            if (needsRefresh)
+            {
+                dropdown.ClearOptions();
+                dropdown.AddOptions(new System.Collections.Generic.List<string>(labels));
+            }
+
+            dropdown.SetValueWithoutNotify(Mathf.Clamp(BrowserGameSettings.ResolutionIndex, 0, dropdown.options.Count - 1));
             dropdown.RefreshShownValue();
         }
 

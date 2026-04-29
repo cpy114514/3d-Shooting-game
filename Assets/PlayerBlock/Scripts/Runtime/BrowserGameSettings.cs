@@ -20,6 +20,8 @@ namespace PlayerBlock
             public int graphicsQuality = (int)GraphicsQualityLevel.High;
             public bool shadows = true;
             public bool showFps = false;
+            public int resolutionWidth = 1920;
+            public int resolutionHeight = 1080;
             public float mouseSensitivity = 0.14f;
             public bool invertYAxis = false;
             public float masterVolume = 1f;
@@ -60,6 +62,15 @@ namespace PlayerBlock
             {
                 EnsureLoaded();
                 return _data.showFps;
+            }
+        }
+
+        public static int ResolutionIndex
+        {
+            get
+            {
+                EnsureLoaded();
+                return FindResolutionIndex(BuildResolutionOptions(), _data.resolutionWidth, _data.resolutionHeight);
             }
         }
 
@@ -167,6 +178,7 @@ namespace PlayerBlock
 
             AudioListener.volume = _data.masterVolume;
             ApplyGraphicsQuality();
+            ApplyResolution();
             ApplyToActivePlayers();
         }
 
@@ -208,6 +220,47 @@ namespace PlayerBlock
         public static void ToggleShowFps()
         {
             SetShowFps(!ShowFps);
+        }
+
+        public static string[] GetResolutionLabels()
+        {
+            var options = BuildResolutionOptions();
+            var labels = new string[options.Count];
+            for (var i = 0; i < options.Count; i++)
+            {
+                labels[i] = options[i].Label;
+            }
+
+            return labels;
+        }
+
+        public static string GetCurrentResolutionLabel()
+        {
+            EnsureLoaded();
+            var options = BuildResolutionOptions();
+            var index = FindResolutionIndex(options, _data.resolutionWidth, _data.resolutionHeight);
+            if (index >= 0 && index < options.Count)
+            {
+                return options[index].Label;
+            }
+
+            return _data.resolutionWidth + "x" + _data.resolutionHeight;
+        }
+
+        public static void SetResolutionIndex(int value)
+        {
+            Mutate(data =>
+            {
+                var options = BuildResolutionOptions();
+                if (options.Count == 0)
+                {
+                    return;
+                }
+
+                var clamped = Mathf.Clamp(value, 0, options.Count - 1);
+                data.resolutionWidth = options[clamped].Width;
+                data.resolutionHeight = options[clamped].Height;
+            });
         }
 
         public static void SetMouseSensitivity(float value)
@@ -304,6 +357,11 @@ namespace PlayerBlock
             }
 
             _data.graphicsQuality = Mathf.Clamp(_data.graphicsQuality, 0, 2);
+            if (_data.resolutionWidth <= 0 || _data.resolutionHeight <= 0)
+            {
+                _data.resolutionWidth = 1920;
+                _data.resolutionHeight = 1080;
+            }
             _data.mouseSensitivity = Mathf.Clamp(_data.mouseSensitivity, 0.03f, 0.3f);
             _data.masterVolume = Mathf.Clamp01(_data.masterVolume);
             _data.musicVolume = Mathf.Clamp01(_data.musicVolume);
@@ -369,6 +427,86 @@ namespace PlayerBlock
             }
         }
 
+        private static void ApplyResolution()
+        {
+            var options = BuildResolutionOptions();
+            if (options.Count == 0)
+            {
+                return;
+            }
+
+            var index = FindResolutionIndex(options, _data.resolutionWidth, _data.resolutionHeight);
+            if (index < 0)
+            {
+                index = 0;
+            }
+
+            var option = options[Mathf.Clamp(index, 0, options.Count - 1)];
+            if (Screen.width == option.Width && Screen.height == option.Height)
+            {
+                return;
+            }
+
+            Screen.SetResolution(option.Width, option.Height, Screen.fullScreenMode);
+        }
+
+        private static List<ResolutionOption> BuildResolutionOptions()
+        {
+            var result = new List<ResolutionOption>();
+            var seen = new HashSet<string>();
+
+            var systemResolutions = Screen.resolutions;
+            if (systemResolutions != null && systemResolutions.Length > 0)
+            {
+                for (var i = 0; i < systemResolutions.Length; i++)
+                {
+                    AddResolution(result, seen, systemResolutions[i].width, systemResolutions[i].height);
+                }
+            }
+
+            if (result.Count == 0)
+            {
+                AddResolution(result, seen, 1280, 720);
+                AddResolution(result, seen, 1366, 768);
+                AddResolution(result, seen, 1600, 900);
+                AddResolution(result, seen, 1920, 1080);
+                AddResolution(result, seen, 2560, 1440);
+                AddResolution(result, seen, 3440, 1440);
+                AddResolution(result, seen, 3840, 2160);
+            }
+
+            return result;
+        }
+
+        private static void AddResolution(List<ResolutionOption> options, HashSet<string> seen, int width, int height)
+        {
+            if (width <= 0 || height <= 0)
+            {
+                return;
+            }
+
+            var key = width + "x" + height;
+            if (!seen.Add(key))
+            {
+                return;
+            }
+
+            options.Add(new ResolutionOption(width, height));
+        }
+
+        private static int FindResolutionIndex(List<ResolutionOption> options, int width, int height)
+        {
+            for (var i = 0; i < options.Count; i++)
+            {
+                if (options[i].Width == width && options[i].Height == height)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
         private static int WrapIndex(int index, int count)
         {
             if (count <= 0)
@@ -430,5 +568,19 @@ namespace PlayerBlock
         [DllImport("__Internal")]
         private static extern void BrowserSettingsFree(IntPtr value);
 #endif
+
+        private readonly struct ResolutionOption
+        {
+            public readonly int Width;
+            public readonly int Height;
+            public readonly string Label;
+
+            public ResolutionOption(int width, int height)
+            {
+                Width = width;
+                Height = height;
+                Label = width + "x" + height;
+            }
+        }
     }
 }

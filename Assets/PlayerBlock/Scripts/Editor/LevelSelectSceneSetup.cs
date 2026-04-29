@@ -11,7 +11,7 @@ namespace PlayerBlock.Editor
     [InitializeOnLoad]
     public static class LevelSelectSceneSetup
     {
-        private const string CompletionKey = "PlayerBlock.LevelSelectSceneSetup.V2";
+        private const string CompletionKey = "PlayerBlock.LevelSelectSceneSetup.V3";
         private const string StartScenePath = "Assets/Scenes/start.unity";
 
         private static readonly (string DisplayName, string SceneName)[] LevelData =
@@ -80,6 +80,16 @@ namespace PlayerBlock.Editor
             var changed = false;
             var startButton = FindSceneObject(scene, "Button")?.GetComponent<Button>();
             var panel = FindSceneObject(scene, "LevelSelectPanel");
+            var menuRoot = FindSceneObject(scene, "SettingsButton")?.transform.parent;
+            if (menuRoot == null)
+            {
+                menuRoot = FindSceneObject(scene, "TutorialButton")?.transform.parent;
+            }
+            if (menuRoot == null)
+            {
+                menuRoot = canvas.transform;
+            }
+
             if (panel == null)
             {
                 panel = CreateLevelSelectPanel(canvas.transform);
@@ -90,10 +100,21 @@ namespace PlayerBlock.Editor
                 changed = true;
             }
 
+            if (EnsureStartMenuButtons(menuRoot))
+            {
+                changed = true;
+            }
+
             var menu = canvas.GetComponent<LevelSelectMenu>();
             if (menu == null)
             {
                 menu = canvas.gameObject.AddComponent<LevelSelectMenu>();
+                changed = true;
+            }
+
+            if (canvas.GetComponent<StartMenuControls>() == null)
+            {
+                canvas.gameObject.AddComponent<StartMenuControls>();
                 changed = true;
             }
 
@@ -157,6 +178,23 @@ namespace PlayerBlock.Editor
                 var x = column == 0 ? -330f : 330f;
                 var y = 150f - row * 122f;
                 CreateButton(panel, $"LevelButton{i + 1}", LevelData[i].DisplayName, new Vector2(x, y), new Vector2(520f, 104f), 46);
+                changed = true;
+            }
+
+            return changed;
+        }
+
+        private static bool EnsureStartMenuButtons(Transform menuRoot)
+        {
+            if (menuRoot == null)
+            {
+                return false;
+            }
+
+            var changed = false;
+            if (FindChild(menuRoot, "ExitButton") == null)
+            {
+                CreateButton(menuRoot, "ExitButton", "EXIT", new Vector2(150f, -400f), new Vector2(500f, 150f), 46);
                 changed = true;
             }
 
