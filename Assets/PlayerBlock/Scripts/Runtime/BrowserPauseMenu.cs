@@ -44,6 +44,11 @@ namespace PlayerBlock
 
         private void Update()
         {
+            if (EndlessModeDirector.IsUpgradeSelectionOpen)
+            {
+                return;
+            }
+
             if (!EscapePressed())
             {
                 return;

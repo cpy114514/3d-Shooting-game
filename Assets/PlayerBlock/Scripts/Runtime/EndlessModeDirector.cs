@@ -11,6 +11,8 @@ namespace PlayerBlock
     {
         public const string SceneName = "Endless";
 
+        public static bool IsUpgradeSelectionOpen { get; private set; }
+
         [Header("Wave")]
         [SerializeField] private float firstWaveDelay = 1.2f;
         [SerializeField] private float nextWaveDelay = 0.8f;
@@ -306,6 +308,7 @@ namespace PlayerBlock
             _currentChoices.Clear();
             BuildUpgradePool(_currentChoices);
             _upgradeSelectionUnlocked = false;
+            IsUpgradeSelectionOpen = true;
 
             if (waveLabel != null)
             {
@@ -377,6 +380,7 @@ namespace PlayerBlock
 
         private void HideUpgradePanel()
         {
+            IsUpgradeSelectionOpen = false;
             if (upgradePanel != null)
             {
                 upgradePanel.SetActive(false);
