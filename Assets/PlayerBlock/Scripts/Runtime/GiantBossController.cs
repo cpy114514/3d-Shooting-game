@@ -152,6 +152,7 @@ namespace PlayerBlock
             var adjustedAmount = BrowserGameSettings.GetAdjustedDamageDealtToBoss(amount);
             _health = Mathf.Max(0f, _health - adjustedAmount);
             CombatVfxUtility.SpawnDamageNumber(GetDamageNumberPosition(), adjustedAmount, new Color(1f, 0.84f, 0.34f, 1f));
+            GameAudioManager.PlayBossHit();
             UpdateHealthBar();
             UpdatePhase();
 
@@ -401,6 +402,7 @@ namespace PlayerBlock
             _state = BossState.ArmWindup;
             _stateTimer = 0f;
             _armCooldownTimer = armSlamCooldown;
+            GameAudioManager.PlayBossAttack();
         }
 
         private void UpdateArmWindup()
@@ -429,6 +431,7 @@ namespace PlayerBlock
             _state = BossState.SweepWindup;
             _stateTimer = 0f;
             _armCooldownTimer = armSlamCooldown;
+            GameAudioManager.PlayBossAttack();
         }
 
         private void UpdateSweepWindup()
@@ -454,6 +457,7 @@ namespace PlayerBlock
             _jumpCooldownTimer = jumpCooldown;
             _jumpStart = transform.position;
             _jumpEnd = _target != null ? _target.position : transform.position + transform.forward * 6f;
+            GameAudioManager.PlayBossAttack();
         }
 
         private void UpdateJumpWindup()
@@ -495,6 +499,7 @@ namespace PlayerBlock
             _chargeCooldownTimer = chargeCooldown;
             _chargeDirection = direction;
             _chargeHits.Clear();
+            GameAudioManager.PlayBossAttack();
         }
 
         private void UpdateChargeWindup()
@@ -547,6 +552,7 @@ namespace PlayerBlock
             _walkAmount = 0f;
             _verticalVelocity = Vector3.zero;
             _target = null;
+            GameAudioManager.PlayVictory();
             CombatHud.Instance.SetBossHealth(0f, 0f);
             CombatHud.Instance.SetStatusMessage("THE GIANT HAS FALLEN", true);
 
@@ -847,6 +853,7 @@ namespace PlayerBlock
             if (targetCollider.GetComponentInParent<ShadowMinionShield>() != null)
             {
                 CombatVfxUtility.SpawnImpactBurst(targetCollider.bounds.center, transform.forward, new Color(0.08f, 0.05f, 0.12f, 1f), 0.18f, 5);
+                GameAudioManager.PlayShieldBlock();
                 return;
             }
 
@@ -856,6 +863,7 @@ namespace PlayerBlock
                 if (shadow.IsShield && !shadow.IsShieldBroken)
                 {
                     shadow.TryBlockIncomingAttack(transform.position, targetCollider.bounds.center);
+                    GameAudioManager.PlayShieldBlock();
                     return;
                 }
 

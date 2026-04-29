@@ -102,11 +102,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::PlayerBlock.ShadowCloneTarget
   maxHealth: 1
   lifeTime: 18
-  rangedAttackRange: 18
+  rangedAttackRange: 22
   moveSpeed: 3.6
   shieldMoveSpeed: 2.15
   shieldHoldRange: 2.55
-  rangedPreferredDistance: 14
+  rangedPreferredDistance: 16
   stopDistanceBuffer: 0.25
   moveAnimationSpeed: 8.5
   moveBobHeight: 0.08
@@ -126,10 +126,12 @@ MonoBehaviour:
   rangedAttackDamage: 1
   rangedProjectileSpeed: 15
   meleeAttackCooldown: 1
-  rangedAttackCooldown: 0.85
+  rangedAttackCooldown: 0.6
   rangedAttackAnimationDuration: 0.22
   crushHorizontalRadius: 1.15
   crushHeightTolerance: 0.25
+  fallGravityMultiplier: 1.65
+  maxFallSpeed: 22
 --- !u!1 &1364004031379322041
 GameObject:
   m_ObjectHideFlags: 0

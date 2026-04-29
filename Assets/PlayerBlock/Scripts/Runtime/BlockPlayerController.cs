@@ -87,6 +87,7 @@ namespace PlayerBlock
         private static readonly List<BlockPlayerController> ActivePlayers = new List<BlockPlayerController>(1);
         private static readonly Collider[] PunchHitBuffer = new Collider[16];
         private static readonly Collider[] WallPushBuffer = new Collider[24];
+        private static Camera _cachedFallbackCamera;
 
         public static Camera ActiveCamera
         {
@@ -101,7 +102,12 @@ namespace PlayerBlock
                     }
                 }
 
-                return Camera.main != null ? Camera.main : Object.FindFirstObjectByType<Camera>();
+                if (_cachedFallbackCamera == null)
+                {
+                    _cachedFallbackCamera = Camera.main != null ? Camera.main : Object.FindFirstObjectByType<Camera>();
+                }
+
+                return _cachedFallbackCamera;
             }
         }
 
@@ -179,12 +185,14 @@ namespace PlayerBlock
             _health = Mathf.Max(0f, _health - adjustedAmount);
             var hitDirection = GetHitReactionDirection(hitWorldPosition);
             ApplyHitReaction(adjustedAmount, hitDirection);
+            GameAudioManager.PlayPlayerHit();
             CombatVfxUtility.SpawnDustBurst(transform.position + Vector3.up * 1.1f, Vector3.up, 0.4f, 9);
             CombatVfxUtility.SpawnImpactBurst(transform.position + Vector3.up * 1.05f, hitDirection, new Color(0.16f, 0.14f, 0.18f, 1f), 0.26f, 5);
             UpdateHealthBar();
 
             if (_health <= 0f)
             {
+                GameAudioManager.PlayDeath();
                 var hud = CombatHud.Instance;
                 if (hud != null)
                 {
@@ -428,6 +436,7 @@ namespace PlayerBlock
 
         private void StartDash(Vector3 wishDirection)
         {
+            GameAudioManager.PlayDash();
             _isDashing = true;
             _dashTimer = dashDuration;
             _dashCooldownTimer = dashCooldown;
@@ -543,8 +552,9 @@ namespace PlayerBlock
         {
             SpendSelectedShadowEnergy();
             _shootAnimationTimer = shootAnimationDuration;
-            _pendingShadowShot = true;
             _pendingShadowShotKind = GetSelectedCloneKind();
+            _pendingShadowShot = false;
+            FireShadowBullet(_pendingShadowShotKind);
         }
 
         private void TryReleaseShadowBullet()
@@ -569,31 +579,19 @@ namespace PlayerBlock
             var fireDirection = playerCamera != null ? playerCamera.transform.forward : GetCameraForward();
             fireDirection.Normalize();
 
-            var spawnPosition = GetRightPalmPosition() + fireDirection * 0.32f;
+            var spawnPosition = GetRightPalmPosition() + fireDirection * 0.62f;
+            GameAudioManager.PlayPlayerShot();
 
-            var projectile = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            projectile.name = "ShadowBullet";
-            projectile.transform.position = spawnPosition;
-            projectile.transform.localScale = Vector3.one * (shadowBulletRadius * 2.75f);
-
-            var renderer = projectile.GetComponent<Renderer>();
-            if (renderer != null)
-            {
-                renderer.sharedMaterial = CreateShadowBulletMaterial();
-            }
-
-            var collider = projectile.GetComponent<SphereCollider>();
-            if (collider != null)
-            {
-                collider.radius = 0.58f;
-            }
-
-            projectile.AddComponent<Rigidbody>();
-            var shadowProjectile = projectile.AddComponent<ShadowProjectile>();
-            shadowProjectile.SetCloneKind(cloneKind);
-            shadowProjectile.Launch(fireDirection * shadowBulletSpeed, gameObject);
-
-            CombatVfxUtility.ConfigureTrail(projectile, 0.22f, shadowBulletRadius * 1.9f);
+            ShadowProjectile.Spawn(
+                spawnPosition,
+                fireDirection * shadowBulletSpeed,
+                gameObject,
+                cloneKind,
+                CreateShadowBulletMaterial(),
+                shadowBulletRadius * 2.75f,
+                0.22f,
+                shadowBulletRadius * 1.9f,
+                0.58f);
             CombatVfxUtility.SpawnMuzzleFlash(spawnPosition, fireDirection, 0.16f, 7);
         }
 
@@ -604,6 +602,7 @@ namespace PlayerBlock
             _currentMeleeCombo = _nextMeleeComboIndex < 2 ? MeleeComboAttack.RightPunch : MeleeComboAttack.HeavyPunch;
             _nextMeleeComboIndex = (_nextMeleeComboIndex + 1) % 3;
             _meleeComboHasHit = false;
+            GameAudioManager.PlayPlayerPunch();
         }
 
         private void TryResolveMeleeComboHit()
@@ -644,6 +643,7 @@ namespace PlayerBlock
                     if (PunchHitBuffer[i] != null && PunchHitBuffer[i].GetComponentInParent<ShadowMinionShield>() != null)
                     {
                         CombatVfxUtility.SpawnImpactBurst(PunchHitBuffer[i].bounds.center, GetAimDirection(), new Color(0.08f, 0.06f, 0.1f, 1f), 0.24f, 5);
+                        GameAudioManager.PlayShieldBlock();
                         return;
                     }
 
@@ -1232,7 +1232,7 @@ namespace PlayerBlock
 
         private bool CanFireSelectedShadow()
         {
-            return _selectedCombatKind != CombatSelectionKind.Hands && _shadowEnergy >= GetSelectedShadowEnergyCost();
+            return _shadowEnergy >= GetSelectedShadowEnergyCost();
         }
 
         private float GetSelectedShadowEnergyCost()

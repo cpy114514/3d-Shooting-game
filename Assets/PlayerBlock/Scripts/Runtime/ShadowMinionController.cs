@@ -119,6 +119,7 @@ namespace PlayerBlock
                 new Color(0.07f, 0.06f, 0.08f, 1f),
                 impactScale,
                 5);
+            GameAudioManager.PlayEnemyHit();
 
             if (_health <= 0f)
             {
@@ -204,6 +205,7 @@ namespace PlayerBlock
             }
 
             CombatVfxUtility.SpawnImpactBurst(blockPoint, direction, new Color(0.08f, 0.1f, 0.14f, 1f), 0.22f, 6);
+            GameAudioManager.PlayShieldBlock();
             return true;
         }
 
@@ -550,6 +552,7 @@ namespace PlayerBlock
             _attackStateTimer = Mathf.Max(0f, attackWindup);
             _attackAnimationTimer = attackWindup + attackStrikeDuration;
             _hasHitThisAttack = false;
+            GameAudioManager.PlayEnemyAttack();
         }
 
         private void TryHitTarget()
@@ -593,6 +596,7 @@ namespace PlayerBlock
                     && !_shadowTarget.IsShieldBroken
                     && _shadowTarget.TryBlockIncomingAttack(transform.position + Vector3.up * hitHeightOffset, impactPoint))
                 {
+                    GameAudioManager.PlayShieldBlock();
                     return;
                 }
 
@@ -676,6 +680,7 @@ namespace PlayerBlock
                 new Color(0.08f, 0.05f, 0.1f, 1f),
                 impactScale,
                 6);
+            GameAudioManager.PlayEnemyAttack();
         }
 
         private Vector3 GetSpearStrikeStart()
@@ -754,34 +759,16 @@ namespace PlayerBlock
             direction.Normalize();
             _hasHitThisAttack = true;
 
-            var projectileObject = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            projectileObject.name = "ShadowEnemyBolt";
-            projectileObject.transform.position = spawnPosition;
-            projectileObject.transform.localScale = Vector3.one * rangedProjectileScale;
-
-            var renderer = projectileObject.GetComponent<Renderer>();
-            if (renderer != null)
-            {
-                renderer.sharedMaterial = CombatVfxUtility.GetBlackBulletMaterial();
-            }
-
-            var collider = projectileObject.GetComponent<SphereCollider>();
-            if (collider != null)
-            {
-                collider.radius = 0.5f;
-            }
-
-            projectileObject.AddComponent<Rigidbody>();
-            var projectile = projectileObject.AddComponent<ShadowMinionProjectile>();
-            projectile.Launch(direction * rangedProjectileSpeed, attackDamage, gameObject);
-            CombatVfxUtility.ConfigureTrail(projectileObject, 0.16f, Mathf.Max(0.06f, rangedProjectileScale * 0.7f));
+            ShadowMinionProjectile.Spawn(
+                spawnPosition,
+                direction * rangedProjectileSpeed,
+                attackDamage,
+                gameObject,
+                rangedProjectileScale,
+                0.16f,
+                Mathf.Max(0.06f, rangedProjectileScale * 0.7f),
+                0.5f);
             CombatVfxUtility.SpawnMuzzleFlash(spawnPosition, direction, 0.14f, 6);
-
-            var selfCollider = GetComponent<Collider>();
-            if (selfCollider != null && collider != null)
-            {
-                Physics.IgnoreCollision(collider, selfCollider, true);
-            }
         }
 
         private Vector3 GetProjectileSpawnPosition()
@@ -946,6 +933,7 @@ namespace PlayerBlock
             }
 
             _isDead = true;
+            GameAudioManager.PlayEnemyDeath();
             CombatVfxUtility.SpawnImpactBurst(
                 transform.position + Vector3.up * hitHeightOffset,
                 Vector3.up,

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace PlayerBlock
@@ -11,41 +12,113 @@ namespace PlayerBlock
         [SerializeField] private float pulseAmount = 0.16f;
 
         private static readonly RaycastHit[] GroundHitBuffer = new RaycastHit[12];
+        private static readonly Stack<ShadowProjectile> Pool = new Stack<ShadowProjectile>(24);
         private static Material SharedFallbackShadowMaterial;
+        private static Transform PoolRoot
+        {
+            get
+            {
+                if (_poolRoot != null)
+                {
+                    return _poolRoot;
+                }
+
+                var poolObject = new GameObject("ShadowProjectilePool");
+                poolObject.hideFlags = HideFlags.HideInHierarchy;
+                Object.DontDestroyOnLoad(poolObject);
+                _poolRoot = poolObject.transform;
+                return _poolRoot;
+            }
+        }
+
+        private static Transform _poolRoot;
 
         private Rigidbody _rigidbody;
+        private SphereCollider _sphereCollider;
+        private Renderer _renderer;
         private GameObject _owner;
+        private Collider _ownerCollider;
+        private Collider[] _ownerColliders;
         private Vector3 _baseScale;
         private ShadowCloneKind _cloneKind = ShadowCloneKind.Melee;
         private float _age;
         private bool _hasImpacted;
+        private bool _isPooledRelease;
+
+        public static ShadowProjectile Spawn(
+            Vector3 position,
+            Vector3 velocity,
+            GameObject owner,
+            ShadowCloneKind cloneKind,
+            Material material,
+            float scale,
+            float trailTime,
+            float trailWidth,
+            float colliderRadius)
+        {
+            var projectile = Acquire();
+            var projectileTransform = projectile.transform;
+            projectileTransform.SetParent(null, true);
+            projectileTransform.SetPositionAndRotation(position, Quaternion.identity);
+            projectileTransform.localScale = Vector3.one * scale;
+            projectile.gameObject.SetActive(true);
+            projectile.Launch(velocity, owner, cloneKind, material, trailTime, trailWidth, colliderRadius);
+            return projectile;
+        }
 
         public void SetCloneKind(ShadowCloneKind cloneKind)
         {
             _cloneKind = cloneKind;
         }
 
-        public void Launch(Vector3 velocity, GameObject owner)
+        public void Launch(Vector3 velocity, GameObject owner, ShadowCloneKind cloneKind, Material material, float trailTime, float trailWidth, float colliderRadius)
         {
+            _isPooledRelease = false;
             _owner = owner;
+            _ownerCollider = owner != null ? owner.GetComponent<Collider>() : null;
+            _ownerColliders = owner != null ? owner.GetComponentsInChildren<Collider>(true) : null;
+            _cloneKind = cloneKind;
             _rigidbody = GetComponent<Rigidbody>();
+            _sphereCollider = GetComponent<SphereCollider>();
+            _renderer = GetComponent<Renderer>();
+            _age = 0f;
+            _hasImpacted = false;
+            _baseScale = transform.localScale;
             _rigidbody.useGravity = false;
             _rigidbody.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
             _rigidbody.interpolation = RigidbodyInterpolation.None;
+            _rigidbody.linearVelocity = Vector3.zero;
+            _rigidbody.angularVelocity = Vector3.zero;
             _rigidbody.linearVelocity = velocity;
-            CombatVfxUtility.ConfigureTrail(gameObject, 0.18f, Mathf.Max(0.05f, transform.localScale.x * 0.42f));
-
-            var projectileCollider = GetComponent<Collider>();
-            var ownerCollider = owner != null ? owner.GetComponent<Collider>() : null;
-            if (projectileCollider != null && ownerCollider != null)
+            if (_renderer != null && material != null)
             {
-                Physics.IgnoreCollision(projectileCollider, ownerCollider, true);
+                _renderer.sharedMaterial = material;
+            }
+
+            if (_sphereCollider != null)
+            {
+                _sphereCollider.radius = colliderRadius;
+            }
+
+            CombatVfxUtility.ConfigureTrail(gameObject, trailTime, Mathf.Max(0.05f, transform.localScale.x * trailWidth));
+            if (_sphereCollider != null && _ownerColliders != null)
+            {
+                for (var i = 0; i < _ownerColliders.Length; i++)
+                {
+                    var ownerCollider = _ownerColliders[i];
+                    if (ownerCollider != null && ownerCollider.enabled)
+                    {
+                        Physics.IgnoreCollision(_sphereCollider, ownerCollider, true);
+                    }
+                }
             }
         }
 
         private void Awake()
         {
             _rigidbody = GetComponent<Rigidbody>();
+            _sphereCollider = GetComponent<SphereCollider>();
+            _renderer = GetComponent<Renderer>();
             _baseScale = transform.localScale;
         }
 
@@ -54,7 +127,7 @@ namespace PlayerBlock
             _age += Time.deltaTime;
             if (_age >= lifeTime)
             {
-                Destroy(gameObject);
+                ReleaseToPool();
                 return;
             }
 
@@ -78,8 +151,74 @@ namespace PlayerBlock
                     ? new Color(0.07f, 0.09f, 0.12f, 1f)
                     : new Color(0.11f, 0.11f, 0.12f, 1f);
             CombatVfxUtility.SpawnImpactBurst(contact.point, contact.normal, burstColor, 0.24f, 6);
+            GameAudioManager.PlayPlayerHit();
             SpawnShadowClone(contact.point, contact.normal, _cloneKind);
-            Destroy(gameObject);
+            ReleaseToPool();
+        }
+
+        private static ShadowProjectile Acquire()
+        {
+            while (Pool.Count > 0)
+            {
+                var candidate = Pool.Pop();
+                if (candidate != null)
+                {
+                    return candidate;
+                }
+            }
+
+            return CreateProjectile();
+        }
+
+        private static ShadowProjectile CreateProjectile()
+        {
+            var projectileObject = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            projectileObject.name = "ShadowBullet";
+            projectileObject.hideFlags = HideFlags.HideInHierarchy;
+            projectileObject.transform.SetParent(PoolRoot, false);
+
+            var projectile = projectileObject.AddComponent<ShadowProjectile>();
+            projectileObject.SetActive(false);
+            return projectile;
+        }
+
+        private void ReleaseToPool()
+        {
+            if (_isPooledRelease)
+            {
+                return;
+            }
+
+            _isPooledRelease = true;
+
+            if (_sphereCollider != null && _ownerColliders != null)
+            {
+                for (var i = 0; i < _ownerColliders.Length; i++)
+                {
+                    var ownerCollider = _ownerColliders[i];
+                    if (ownerCollider != null && ownerCollider.enabled)
+                    {
+                        Physics.IgnoreCollision(_sphereCollider, ownerCollider, false);
+                    }
+                }
+            }
+
+            _owner = null;
+            _ownerCollider = null;
+            _ownerColliders = null;
+            _rigidbody.linearVelocity = Vector3.zero;
+            _rigidbody.angularVelocity = Vector3.zero;
+            _age = 0f;
+            _hasImpacted = false;
+            if (Pool.Count < 48)
+            {
+                gameObject.SetActive(false);
+                transform.SetParent(PoolRoot, false);
+                Pool.Push(this);
+                return;
+            }
+
+            Object.Destroy(gameObject);
         }
 
         private static void SpawnShadowClone(Vector3 position, Vector3 normal, ShadowCloneKind cloneKind)

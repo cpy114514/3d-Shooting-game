@@ -14,6 +14,9 @@ namespace PlayerBlock
         [SerializeField] private float sealLandingHeight = 0.92f;
         [SerializeField] private float sealDropSpeed = 22f;
         [SerializeField] private float clearInteractDistance = 5.5f;
+        [SerializeField] private float sealPushRadius = 3.2f;
+        [SerializeField] private float sealPushForce = 8.5f;
+        [SerializeField] private float sealPushUpward = 0.8f;
 
         private bool _hasSeenMinion;
         private bool _sealDropping;
@@ -141,6 +144,8 @@ namespace PlayerBlock
                 return;
             }
 
+            PushNearbyActorsAway();
+
             if (defeatSeal.position.y > _sealTargetPosition.y + 0.08f)
             {
                 return;
@@ -153,6 +158,78 @@ namespace PlayerBlock
             _sealDropping = false;
             CombatVfxUtility.SpawnDustBurst(_sealTargetPosition, Vector3.up, 0.8f, 14);
             CombatHud.Instance.SetStatusMessage("APPROACH THE SEAL", true);
+        }
+
+        private void PushNearbyActorsAway()
+        {
+            var sealPosition = defeatSeal.position;
+            PushPlayersAway(sealPosition);
+            PushShadowsAway(sealPosition);
+        }
+
+        private void PushPlayersAway(Vector3 sealPosition)
+        {
+            var players = BlockPlayerController.ActiveInstances;
+            for (var i = 0; i < players.Count; i++)
+            {
+                var player = players[i];
+                if (player == null || player.Health <= 0f)
+                {
+                    continue;
+                }
+
+                var controller = player.GetComponent<CharacterController>();
+                if (controller == null)
+                {
+                    continue;
+                }
+
+                var playerPosition = player.transform.position;
+                var away = playerPosition - sealPosition;
+                away.y = 0f;
+                var distance = away.magnitude;
+                if (distance > sealPushRadius || distance < 0.001f)
+                {
+                    continue;
+                }
+
+                var push = away / distance * Mathf.Lerp(sealPushForce, 0.1f, distance / sealPushRadius);
+                push.y = sealPushUpward;
+                controller.Move(push * Time.deltaTime);
+            }
+        }
+
+        private void PushShadowsAway(Vector3 sealPosition)
+        {
+            var shadows = ShadowCloneTarget.ActiveInstances;
+            for (var i = 0; i < shadows.Count; i++)
+            {
+                var shadow = shadows[i];
+                if (shadow == null || !shadow.IsAlive)
+                {
+                    continue;
+                }
+
+                var shadowTransform = shadow.transform;
+                var away = shadowTransform.position - sealPosition;
+                away.y = 0f;
+                var distance = away.magnitude;
+                if (distance > sealPushRadius || distance < 0.001f)
+                {
+                    continue;
+                }
+
+                var rigidbody = shadow.GetComponent<Rigidbody>();
+                if (rigidbody == null || rigidbody.isKinematic)
+                {
+                    continue;
+                }
+
+                var pushDirection = away / distance;
+                var pushVelocity = pushDirection * Mathf.Lerp(sealPushForce, 0.1f, distance / sealPushRadius);
+                pushVelocity.y = sealPushUpward * 0.6f;
+                rigidbody.linearVelocity = new Vector3(pushVelocity.x, Mathf.Max(rigidbody.linearVelocity.y, pushVelocity.y), pushVelocity.z);
+            }
         }
 
         private void UpdateClearInteraction()

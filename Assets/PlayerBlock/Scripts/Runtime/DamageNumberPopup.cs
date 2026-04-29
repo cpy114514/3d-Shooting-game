@@ -53,10 +53,6 @@ namespace PlayerBlock
             transform.localScale = _baseScale * (1f + t * scaleGrowth);
 
             var cameraToFace = BlockPlayerController.ActiveCamera;
-            if (cameraToFace == null)
-            {
-                cameraToFace = Camera.main != null ? Camera.main : FindFirstObjectByType<Camera>();
-            }
             if (cameraToFace != null)
             {
                 var toCamera = cameraToFace.transform.position - transform.position;

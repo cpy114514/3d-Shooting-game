@@ -14,6 +14,8 @@ namespace PlayerBlock
         private static int ActiveFlashLights;
         private static int ActiveDamageNumbers;
         private static Font DamageNumberFont;
+        private static readonly Stack<GameObject> BurstPool = new Stack<GameObject>(64);
+        private static Transform _burstPoolRoot;
 
         public static Material GetBlackBulletMaterial()
         {
@@ -60,6 +62,8 @@ namespace PlayerBlock
             trail.numCornerVertices = 2;
             trail.alignment = LineAlignment.View;
             trail.sharedMaterial = GetTrailMaterial();
+            trail.Clear();
+            trail.emitting = true;
             return trail;
         }
 
@@ -168,18 +172,12 @@ namespace PlayerBlock
 
             for (var i = 0; i < pieceCount; i++)
             {
-                var primitiveType = Random.value > 0.5f ? PrimitiveType.Cube : PrimitiveType.Sphere;
-                var shard = GameObject.CreatePrimitive(primitiveType);
+                var shard = AcquireBurstPiece();
                 shard.name = "CombatVfxShard";
+                shard.transform.SetParent(null, true);
                 shard.transform.position = position + Random.insideUnitSphere * scale * 0.12f;
                 shard.transform.rotation = Random.rotation;
                 shard.transform.localScale = Vector3.one * Random.Range(scale * 0.08f, scale * 0.2f);
-
-                var collider = shard.GetComponent<Collider>();
-                if (collider != null)
-                {
-                    Object.Destroy(collider);
-                }
 
                 var renderer = shard.GetComponent<Renderer>();
                 if (renderer != null && material != null)
@@ -191,11 +189,13 @@ namespace PlayerBlock
                 var velocity = burstDirection * Random.Range(minSpeed, maxSpeed) + Vector3.up * Random.Range(0.4f, 1.5f);
                 var angularVelocity = Random.insideUnitSphere * Random.Range(220f, 520f);
                 ActiveBurstPieces++;
-                shard.AddComponent<CombatVfxLifetime>().Initialize(
+                var lifetime = shard.GetComponent<CombatVfxLifetime>();
+                lifetime.Initialize(
                     Random.Range(minLifetime, maxLifetime),
                     isLight: false,
                     velocity,
                     angularVelocity);
+                shard.SetActive(true);
             }
         }
 
@@ -215,6 +215,73 @@ namespace PlayerBlock
             light.intensity = intensity;
             ActiveFlashLights++;
             lightObject.AddComponent<CombatVfxLifetime>().Initialize(0.11f, isLight: true);
+        }
+
+        private static GameObject AcquireBurstPiece()
+        {
+            while (BurstPool.Count > 0)
+            {
+                var candidate = BurstPool.Pop();
+                if (candidate != null)
+                {
+                    return candidate;
+                }
+            }
+
+            return CreateBurstPiece();
+        }
+
+        private static Transform BurstPoolRoot
+        {
+            get
+            {
+                if (_burstPoolRoot != null)
+                {
+                    return _burstPoolRoot;
+                }
+
+                var poolObject = new GameObject("CombatVfxBurstPool");
+                poolObject.hideFlags = HideFlags.HideInHierarchy;
+                Object.DontDestroyOnLoad(poolObject);
+                _burstPoolRoot = poolObject.transform;
+                return _burstPoolRoot;
+            }
+        }
+
+        private static GameObject CreateBurstPiece()
+        {
+            var shard = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            shard.name = "CombatVfxShard";
+            shard.hideFlags = HideFlags.HideInHierarchy;
+            shard.transform.SetParent(BurstPoolRoot, false);
+
+            var collider = shard.GetComponent<Collider>();
+            if (collider != null)
+            {
+                Object.Destroy(collider);
+            }
+
+            shard.AddComponent<CombatVfxLifetime>();
+            shard.SetActive(false);
+            return shard;
+        }
+
+        private static void ReleaseBurstPiece(GameObject shard)
+        {
+            if (shard == null)
+            {
+                return;
+            }
+
+            if (BurstPool.Count < 96)
+            {
+                shard.SetActive(false);
+                shard.transform.SetParent(BurstPoolRoot, false);
+                BurstPool.Push(shard);
+                return;
+            }
+
+            Object.Destroy(shard);
         }
 
         private static Material GetOrCreateMaterial(string key, Color color, Color? emissionColor)
@@ -283,6 +350,7 @@ namespace PlayerBlock
                 _isLight = isLight;
                 _velocity = velocity;
                 _angularVelocity = angularVelocity;
+                _released = false;
             }
 
             private void Update()
@@ -298,7 +366,14 @@ namespace PlayerBlock
                 if (_lifeTime <= 0f)
                 {
                     Release();
-                    Destroy(gameObject);
+                    if (_isLight)
+                    {
+                        Destroy(gameObject);
+                    }
+                    else
+                    {
+                        ReleaseBurstPiece(gameObject);
+                    }
                 }
             }
 

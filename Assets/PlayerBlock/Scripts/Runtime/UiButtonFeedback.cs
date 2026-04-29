@@ -6,7 +6,7 @@ using UnityEngine.UI;
 namespace PlayerBlock
 {
     [DisallowMultipleComponent]
-    public sealed class UiButtonFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler, ISelectHandler, IDeselectHandler
+    public sealed class UiButtonFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler, IPointerClickHandler, ISelectHandler, IDeselectHandler, ISubmitHandler
     {
         [SerializeField] private float hoverScale = 1.05f;
         [SerializeField] private float pressedScale = 0.985f;
@@ -88,6 +88,11 @@ namespace PlayerBlock
             RefreshTargets();
         }
 
+        public void OnPointerClick(PointerEventData eventData)
+        {
+            PlayConfirmSound();
+        }
+
         public void OnSelect(BaseEventData eventData)
         {
             _hovered = true;
@@ -99,6 +104,11 @@ namespace PlayerBlock
             _hovered = false;
             _pressed = false;
             RefreshTargets();
+        }
+
+        public void OnSubmit(BaseEventData eventData)
+        {
+            PlayConfirmSound();
         }
 
         private void RefreshTargets()
@@ -165,6 +175,16 @@ namespace PlayerBlock
 
             RefreshTargets();
             _pulseRoutine = null;
+        }
+
+        private void PlayConfirmSound()
+        {
+            if (_button == null || !_button.interactable)
+            {
+                return;
+            }
+
+            GameAudioManager.PlayUiConfirm();
         }
 
         private Color GetDarkHoverTint()

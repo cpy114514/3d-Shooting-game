@@ -157,6 +157,7 @@ namespace PlayerBlock
             }
 
             _health = Mathf.Max(0f, _health - amount);
+            GameAudioManager.PlayEnemyHit();
             if (_health <= 0f)
             {
                 Die();
@@ -288,16 +289,11 @@ namespace PlayerBlock
                     MoveAroundTarget(target.TargetTransform);
                     if (_attackCooldownTimer <= 0f)
                     {
-                        var sqrDistance = (target.TargetTransform.position - transform.position).sqrMagnitude;
-                        // Ranged shadows keep their distance, then fire once the target is inside their attack window.
-                        if (sqrDistance <= rangedAttackRange * rangedAttackRange)
-                        {
-                            _attackCooldownTimer = rangedAttackCooldown;
-                            _attackAnimationTimer = rangedAttackAnimationDuration;
-                            _hasHitThisSwing = false;
-                            FireRangedShot(target);
-                            _hasHitThisSwing = true;
-                        }
+                        _attackCooldownTimer = rangedAttackCooldown;
+                        _attackAnimationTimer = rangedAttackAnimationDuration;
+                        _hasHitThisSwing = false;
+                        FireRangedShot(target);
+                        _hasHitThisSwing = true;
                     }
                 }
                 else
@@ -667,33 +663,16 @@ namespace PlayerBlock
                 direction = transform.forward;
             }
 
-            var bolt = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            bolt.name = "ShadowRangedBolt";
-            bolt.transform.position = spawnPosition;
-            bolt.transform.localScale = Vector3.one * 0.18f;
-
-            var renderer = bolt.GetComponent<Renderer>();
-            if (renderer != null)
-            {
-                renderer.sharedMaterial = GetShardMaterial();
-            }
-
-            var collider = bolt.GetComponent<SphereCollider>();
-            if (collider != null)
-            {
-                collider.radius = 0.5f;
-            }
-
-            bolt.AddComponent<Rigidbody>();
-            var projectile = bolt.AddComponent<ShadowBoltProjectile>();
-            projectile.Launch(direction * rangedProjectileSpeed, rangedAttackDamage);
+            ShadowBoltProjectile.Spawn(
+                spawnPosition,
+                direction * rangedProjectileSpeed,
+                rangedAttackDamage,
+                gameObject,
+                0.18f,
+                0.14f,
+                Mathf.Max(0.04f, 0.18f * 0.32f),
+                0.5f);
             CombatVfxUtility.SpawnMuzzleFlash(spawnPosition, direction, 0.14f, 6);
-
-            var selfCollider = GetComponent<Collider>();
-            if (selfCollider != null && collider != null)
-            {
-                Physics.IgnoreCollision(collider, selfCollider, true);
-            }
         }
 
         private Vector3 GetRightHandPosition()
@@ -854,6 +833,7 @@ namespace PlayerBlock
             }
 
             _isDead = true;
+            GameAudioManager.PlayEnemyDeath();
             SpawnBreakEffect();
             Destroy(gameObject);
         }

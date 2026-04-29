@@ -461,14 +461,14 @@ MonoBehaviour:
   dashSpeed: 24
   dashDuration: 0.5
   dashDecay: 12
-  dashCooldown: 0.9
+  dashCooldown: 0.85
   maxHealth: 100
   shadowBulletSpeed: 24
-  maxShadowEnergy: 10
-  shadowEnergyRegenPerSecond: 1.5
-  meleeShadowEnergyCost: 1
-  rangedShadowEnergyCost: 2
-  shieldShadowEnergyCost: 2
+  maxShadowEnergy: 15
+  shadowEnergyRegenPerSecond: 0.5
+  meleeShadowEnergyCost: 2
+  rangedShadowEnergyCost: 3
+  shieldShadowEnergyCost: 3
   shadowBulletRadius: 0.2
   punchDamage: 5
   punchRange: 0.72
@@ -505,6 +505,8 @@ MonoBehaviour:
   hitReactionRoll: 12
   hitShakeAmplitude: 0.32
   hitShakeDuration: 0.2
+  wallPushOutPadding: 0.04
+  wallPushOutIterations: 3
 --- !u!1 &2826642764241206476
 GameObject:
   m_ObjectHideFlags: 0
