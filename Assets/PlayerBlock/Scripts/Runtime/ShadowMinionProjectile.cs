@@ -60,7 +60,6 @@ namespace PlayerBlock
             }
 
             CombatVfxUtility.ConfigureTrail(gameObject, trailTime, Mathf.Max(0.04f, transform.localScale.x * trailWidth));
-            GameAudioManager.PlayEnemyShot();
             if (_sphereCollider != null && _ownerCollider != null)
             {
                 Physics.IgnoreCollision(_sphereCollider, _ownerCollider, true);

@@ -11,7 +11,7 @@ namespace PlayerBlock.Editor
     [InitializeOnLoad]
     public static class LevelSelectSceneSetup
     {
-        private const string CompletionKey = "PlayerBlock.LevelSelectSceneSetup.V1";
+        private const string CompletionKey = "PlayerBlock.LevelSelectSceneSetup.V2";
         private const string StartScenePath = "Assets/Scenes/start.unity";
 
         private static readonly (string DisplayName, string SceneName)[] LevelData =
@@ -20,7 +20,8 @@ namespace PlayerBlock.Editor
             ("LEVEL 2", "Maingame2"),
             ("LEVEL 3", "Maingame3"),
             ("LEVEL 4", "Maingame4"),
-            ("BOSS", "Boss")
+            ("BOSS", "Boss"),
+            ("ENDLESS", EndlessModeDirector.SceneName)
         };
 
         static LevelSelectSceneSetup()
@@ -84,6 +85,10 @@ namespace PlayerBlock.Editor
                 panel = CreateLevelSelectPanel(canvas.transform);
                 changed = true;
             }
+            else if (EnsureLevelButtons(panel.transform))
+            {
+                changed = true;
+            }
 
             var menu = canvas.GetComponent<LevelSelectMenu>();
             if (menu == null)
@@ -127,19 +132,35 @@ namespace PlayerBlock.Editor
                 var row = i / 2;
                 var column = i % 2;
                 var x = column == 0 ? -330f : 330f;
-                var y = 140f - row * 135f;
-                if (i == LevelData.Length - 1)
-                {
-                    x = 0f;
-                    y = -130f;
-                }
+                var y = 150f - row * 122f;
 
                 CreateButton(panel.transform, $"LevelButton{i + 1}", $"{LevelData[i].DisplayName}", new Vector2(x, y), new Vector2(520f, 104f), 46);
             }
 
-            CreateButton(panel.transform, "UnlockAllButton", "UNLOCK ALL", new Vector2(-260f, -310f), new Vector2(420f, 92f), 38);
-            CreateButton(panel.transform, "LevelSelectBackButton", "BACK", new Vector2(260f, -310f), new Vector2(420f, 92f), 38);
+            CreateButton(panel.transform, "UnlockAllButton", "UNLOCK ALL", new Vector2(-260f, -318f), new Vector2(420f, 92f), 38);
+            CreateButton(panel.transform, "LevelSelectBackButton", "BACK", new Vector2(260f, -318f), new Vector2(420f, 92f), 38);
             return panel;
+        }
+
+        private static bool EnsureLevelButtons(Transform panel)
+        {
+            var changed = false;
+            for (var i = 0; i < LevelData.Length; i++)
+            {
+                if (FindChild(panel, $"LevelButton{i + 1}") != null)
+                {
+                    continue;
+                }
+
+                var row = i / 2;
+                var column = i % 2;
+                var x = column == 0 ? -330f : 330f;
+                var y = 150f - row * 122f;
+                CreateButton(panel, $"LevelButton{i + 1}", LevelData[i].DisplayName, new Vector2(x, y), new Vector2(520f, 104f), 46);
+                changed = true;
+            }
+
+            return changed;
         }
 
         private static Button CreateButton(Transform parent, string name, string label, Vector2 position, Vector2 size, int fontSize)
@@ -200,6 +221,7 @@ namespace PlayerBlock.Editor
                 var entry = levels.GetArrayElementAtIndex(i);
                 entry.FindPropertyRelative("DisplayName").stringValue = LevelData[i].DisplayName;
                 entry.FindPropertyRelative("SceneName").stringValue = LevelData[i].SceneName;
+                entry.FindPropertyRelative("IsEndlessMode").boolValue = LevelData[i].DisplayName == "ENDLESS";
                 entry.FindPropertyRelative("Button").objectReferenceValue = FindChild(panel.transform, $"LevelButton{i + 1}")?.GetComponent<Button>();
                 entry.FindPropertyRelative("Label").objectReferenceValue = FindChild(panel.transform, $"LevelButton{i + 1}Label")?.GetComponent<Text>();
             }

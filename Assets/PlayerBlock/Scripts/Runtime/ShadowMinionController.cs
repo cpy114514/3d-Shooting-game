@@ -101,6 +101,23 @@ namespace PlayerBlock
         public Transform TargetTransform => transform;
         public static IReadOnlyList<ShadowMinionController> ActiveInstances => ActiveMinions;
 
+        public void ApplyEndlessScaling(float healthMultiplier, float damageMultiplier, float moveSpeedMultiplier, float attackSpeedMultiplier)
+        {
+            healthMultiplier = Mathf.Max(0.1f, healthMultiplier);
+            damageMultiplier = Mathf.Max(0.1f, damageMultiplier);
+            moveSpeedMultiplier = Mathf.Max(0.1f, moveSpeedMultiplier);
+            attackSpeedMultiplier = Mathf.Max(0.1f, attackSpeedMultiplier);
+
+            var healthPercent = maxHealth > 0f ? Mathf.Clamp01(_health / maxHealth) : 1f;
+            maxHealth *= healthMultiplier;
+            _health = Mathf.Max(1f, maxHealth * healthPercent);
+            attackDamage *= damageMultiplier;
+            moveSpeed *= moveSpeedMultiplier;
+            attackCooldown = Mathf.Max(0.18f, attackCooldown / attackSpeedMultiplier);
+            attackWindup = Mathf.Max(0.08f, attackWindup / Mathf.Sqrt(attackSpeedMultiplier));
+            rangedProjectileSpeed *= Mathf.Lerp(1f, moveSpeedMultiplier, 0.5f);
+        }
+
         public void TakeDamage(float amount)
         {
             if (amount <= 0f || _isDead || _health <= 0f)
@@ -552,7 +569,6 @@ namespace PlayerBlock
             _attackStateTimer = Mathf.Max(0f, attackWindup);
             _attackAnimationTimer = attackWindup + attackStrikeDuration;
             _hasHitThisAttack = false;
-            GameAudioManager.PlayEnemyAttack();
         }
 
         private void TryHitTarget()
@@ -680,7 +696,6 @@ namespace PlayerBlock
                 new Color(0.08f, 0.05f, 0.1f, 1f),
                 impactScale,
                 6);
-            GameAudioManager.PlayEnemyAttack();
         }
 
         private Vector3 GetSpearStrikeStart()

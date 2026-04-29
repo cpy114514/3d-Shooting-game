@@ -28,18 +28,19 @@ namespace PlayerBlock
             float scale,
             float trailTime,
             float trailWidth,
-            float colliderRadius)
+            float colliderRadius,
+            bool playFireSound = true)
         {
             var projectile = Acquire();
             projectile.transform.SetParent(null, true);
             projectile.transform.SetPositionAndRotation(position, Quaternion.identity);
             projectile.transform.localScale = Vector3.one * scale;
             projectile.gameObject.SetActive(true);
-            projectile.Launch(velocity, boltDamage, owner, trailTime, trailWidth, colliderRadius);
+            projectile.Launch(velocity, boltDamage, owner, trailTime, trailWidth, colliderRadius, playFireSound);
             return projectile;
         }
 
-        public void Launch(Vector3 velocity, float boltDamage, GameObject owner, float trailTime, float trailWidth, float colliderRadius)
+        public void Launch(Vector3 velocity, float boltDamage, GameObject owner, float trailTime, float trailWidth, float colliderRadius, bool playFireSound = true)
         {
             _isPooledRelease = false;
             damage = boltDamage;
@@ -62,7 +63,10 @@ namespace PlayerBlock
             }
 
             CombatVfxUtility.ConfigureTrail(gameObject, trailTime, Mathf.Max(0.04f, transform.localScale.x * trailWidth));
-            GameAudioManager.PlayEnemyShot();
+            if (playFireSound)
+            {
+                GameAudioManager.PlayEnemyShot();
+            }
             if (_sphereCollider != null && _ownerColliders != null)
             {
                 for (var i = 0; i < _ownerColliders.Length; i++)

@@ -21,6 +21,9 @@ namespace PlayerBlock
         [SerializeField] private float shieldMoveSpeed = 2.15f;
         [SerializeField] private float shieldHoldRange = 2.55f;
         [SerializeField] private float rangedPreferredDistance = 14f;
+        [SerializeField] private float rangedAimHoldTime = 0.12f;
+        [SerializeField] private float rangedMuzzleForwardOffset = 0.55f;
+        [SerializeField] private float rangedMuzzleUpOffset = 0.08f;
         [SerializeField] private float stopDistanceBuffer = 0.25f;
         [SerializeField] private float moveAnimationSpeed = 8.5f;
         [SerializeField] private float moveBobHeight = 0.08f;
@@ -81,8 +84,10 @@ namespace PlayerBlock
         private float _attackAnimationTimer;
         private float _meleeStateTimer;
         private float _moveAnimationTime;
+        private float _rangedAimHoldTimer;
         private MeleeState _meleeState = MeleeState.Ready;
         private bool _hasHitThisSwing;
+        private bool _rangedShotQueued;
         private bool _shieldBroken;
         private bool _isDead;
 
@@ -102,6 +107,11 @@ namespace PlayerBlock
 
         public bool IsAlive => !_isDead && _health > 0f;
         public static IReadOnlyList<ShadowCloneTarget> ActiveInstances => ActiveShadows;
+
+        public void RefreshEndlessModifiers()
+        {
+            ApplyRigidbodyTuning();
+        }
 
         public Vector3 GetShieldBlockPoint()
         {
@@ -179,6 +189,7 @@ namespace PlayerBlock
 
         private void Awake()
         {
+            lifeTime += EndlessUpgradeState.ShadowLifetimeBonus;
             _health = maxHealth;
             _spawnStunTimer = _kind == ShadowCloneKind.Melee ? meleeSpawnStunDuration : 0f;
             _meleeState = MeleeState.Ready;
@@ -286,15 +297,7 @@ namespace PlayerBlock
                 }
                 else if (_kind == ShadowCloneKind.Ranged)
                 {
-                    MoveAroundTarget(target.TargetTransform);
-                    if (_attackCooldownTimer <= 0f)
-                    {
-                        _attackCooldownTimer = rangedAttackCooldown;
-                        _attackAnimationTimer = rangedAttackAnimationDuration;
-                        _hasHitThisSwing = false;
-                        FireRangedShot(target);
-                        _hasHitThisSwing = true;
-                    }
+                    UpdateRangedCombat(target);
                 }
                 else
                 {
@@ -313,6 +316,64 @@ namespace PlayerBlock
         private void FixedUpdate()
         {
             ApplyExtraFallAcceleration();
+        }
+
+        private void UpdateRangedCombat(IShadowCombatTarget target)
+        {
+            if (target == null || !target.IsTargetAlive)
+            {
+                StopHorizontalMovement();
+                _rangedShotQueued = false;
+                return;
+            }
+
+            var targetTransform = target.TargetTransform;
+            var flatOffset = targetTransform != null ? targetTransform.position - transform.position : Vector3.zero;
+            flatOffset.y = 0f;
+            var distanceToTarget = flatOffset.magnitude;
+
+            if (distanceToTarget > rangedAttackRange)
+            {
+                _rangedShotQueued = false;
+                MoveAroundTarget(targetTransform);
+                return;
+            }
+
+            if (distanceToTarget > rangedPreferredDistance + stopDistanceBuffer)
+            {
+                MoveAroundTarget(targetTransform);
+            }
+            else
+            {
+                StopHorizontalMovement();
+            }
+
+            if (_attackCooldownTimer > 0f)
+            {
+                return;
+            }
+
+            if (!_rangedShotQueued)
+            {
+                _rangedShotQueued = true;
+                _rangedAimHoldTimer = rangedAimHoldTime;
+                _attackAnimationTimer = Mathf.Max(_attackAnimationTimer, rangedAttackAnimationDuration * EndlessUpgradeState.ShadowAttackCooldownMultiplier);
+                return;
+            }
+
+            _rangedAimHoldTimer = Mathf.Max(0f, _rangedAimHoldTimer - Time.deltaTime);
+            if (_rangedAimHoldTimer > 0f)
+            {
+                _attackAnimationTimer = Mathf.Max(_attackAnimationTimer, _rangedAimHoldTimer);
+                return;
+            }
+
+            _attackCooldownTimer = rangedAttackCooldown * EndlessUpgradeState.ShadowAttackCooldownMultiplier;
+            _attackAnimationTimer = rangedAttackAnimationDuration * EndlessUpgradeState.ShadowAttackCooldownMultiplier;
+            _rangedShotQueued = false;
+            _hasHitThisSwing = false;
+            FireRangedShot(target);
+            _hasHitThisSwing = true;
         }
 
         private void UpdateMeleeCombat(IShadowCombatTarget target)
@@ -381,23 +442,23 @@ namespace PlayerBlock
         private void BeginMeleeWindup()
         {
             _meleeState = MeleeState.Windup;
-            _meleeStateTimer = Mathf.Max(0f, meleeAttackWindupDuration);
-            _attackAnimationTimer = meleeAttackWindupDuration + meleeStrikeDuration;
+            _meleeStateTimer = Mathf.Max(0f, meleeAttackWindupDuration * EndlessUpgradeState.ShadowAttackCooldownMultiplier);
+            _attackAnimationTimer = (meleeAttackWindupDuration + meleeStrikeDuration) * EndlessUpgradeState.ShadowAttackCooldownMultiplier;
             _hasHitThisSwing = false;
         }
 
         private void BeginMeleeStrike()
         {
             _meleeState = MeleeState.Strike;
-            _meleeStateTimer = Mathf.Max(0.02f, meleeStrikeDuration);
-            _attackAnimationTimer = Mathf.Max(_attackAnimationTimer, meleeStrikeDuration);
+            _meleeStateTimer = Mathf.Max(0.02f, meleeStrikeDuration * EndlessUpgradeState.ShadowAttackCooldownMultiplier);
+            _attackAnimationTimer = Mathf.Max(_attackAnimationTimer, meleeStrikeDuration * EndlessUpgradeState.ShadowAttackCooldownMultiplier);
         }
 
         private void BeginMeleeRecovery()
         {
             _meleeState = MeleeState.Recovery;
-            _meleeStateTimer = Mathf.Max(0f, meleeRecoverDuration);
-            _attackCooldownTimer = meleeAttackCooldown;
+            _meleeStateTimer = Mathf.Max(0f, meleeRecoverDuration * EndlessUpgradeState.ShadowAttackCooldownMultiplier);
+            _attackCooldownTimer = meleeAttackCooldown * EndlessUpgradeState.ShadowAttackCooldownMultiplier;
             _attackAnimationTimer = 0f;
         }
 
@@ -649,14 +710,15 @@ namespace PlayerBlock
             }
 
             _hasHitThisSwing = true;
-            target.ReceiveShadowDamage(meleeAttackDamage);
+            target.ReceiveShadowDamage(meleeAttackDamage * EndlessUpgradeState.ShadowDamageMultiplier);
             CombatVfxUtility.SpawnImpactBurst(impactPoint, transform.forward, new Color(0.09f, 0.09f, 0.11f, 1f), 0.22f, 5);
         }
 
         private void FireRangedShot(IShadowCombatTarget target)
         {
-            var spawnPosition = GetRightHandPosition();
-            var targetPosition = target != null ? target.GetAimPoint() : transform.position + transform.forward * rangedAttackRange;
+            var aimReference = GetRightHandPosition();
+            var targetPosition = GetRangedAimPoint(target, aimReference);
+            var spawnPosition = GetRangedMuzzlePosition(targetPosition);
             var direction = (targetPosition - spawnPosition).normalized;
             if (direction.sqrMagnitude < 0.001f)
             {
@@ -666,13 +728,44 @@ namespace PlayerBlock
             ShadowBoltProjectile.Spawn(
                 spawnPosition,
                 direction * rangedProjectileSpeed,
-                rangedAttackDamage,
+                rangedAttackDamage * EndlessUpgradeState.ShadowDamageMultiplier,
                 gameObject,
                 0.18f,
                 0.14f,
                 Mathf.Max(0.04f, 0.18f * 0.32f),
-                0.5f);
+                0.5f,
+                false);
             CombatVfxUtility.SpawnMuzzleFlash(spawnPosition, direction, 0.14f, 6);
+        }
+
+        private Vector3 GetRangedAimPoint(IShadowCombatTarget target, Vector3 fromPosition)
+        {
+            if (target == null)
+            {
+                return transform.position + transform.forward * rangedAttackRange;
+            }
+
+            if (target.TryGetClosestPoint(fromPosition, out var closestPoint))
+            {
+                return closestPoint;
+            }
+
+            return target.GetAimPoint();
+        }
+
+        private Vector3 GetRangedMuzzlePosition(Vector3 targetPosition)
+        {
+            var handPosition = GetRightHandPosition();
+            var aimDirection = targetPosition - handPosition;
+            if (aimDirection.sqrMagnitude < 0.001f)
+            {
+                aimDirection = transform.forward;
+            }
+
+            aimDirection.Normalize();
+            return handPosition
+                + aimDirection * rangedMuzzleForwardOffset
+                + Vector3.up * rangedMuzzleUpOffset;
         }
 
         private Vector3 GetRightHandPosition()
@@ -812,7 +905,8 @@ namespace PlayerBlock
 
         private float GetMoveSpeed()
         {
-            return _kind == ShadowCloneKind.Shield ? shieldMoveSpeed : moveSpeed;
+            var baseSpeed = _kind == ShadowCloneKind.Shield ? shieldMoveSpeed : moveSpeed;
+            return baseSpeed * EndlessUpgradeState.ShadowMoveSpeedMultiplier;
         }
 
         private float GetMoveAnimationSpeed()
@@ -822,7 +916,8 @@ namespace PlayerBlock
 
         private float GetAttackAnimationDuration()
         {
-            return _kind == ShadowCloneKind.Ranged ? rangedAttackAnimationDuration : meleeAttackWindupDuration + meleeStrikeDuration;
+            var baseDuration = _kind == ShadowCloneKind.Ranged ? rangedAttackAnimationDuration : meleeAttackWindupDuration + meleeStrikeDuration;
+            return baseDuration * EndlessUpgradeState.ShadowAttackCooldownMultiplier;
         }
 
         private void Die()

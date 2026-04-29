@@ -13,6 +13,7 @@ namespace PlayerBlock
         {
             public string DisplayName = "LEVEL";
             public string SceneName = "Maingame1";
+            public bool IsEndlessMode;
             public Button Button;
             public Text Label;
         }
@@ -28,7 +29,8 @@ namespace PlayerBlock
             new LevelEntry { DisplayName = "LEVEL 2", SceneName = "Maingame2" },
             new LevelEntry { DisplayName = "LEVEL 3", SceneName = "Maingame3" },
             new LevelEntry { DisplayName = "LEVEL 4", SceneName = "Maingame4" },
-            new LevelEntry { DisplayName = "BOSS", SceneName = "Boss" }
+            new LevelEntry { DisplayName = "BOSS", SceneName = "Boss" },
+            new LevelEntry { DisplayName = "ENDLESS", SceneName = EndlessModeDirector.SceneName, IsEndlessMode = true }
         };
 
         private UiPanelAnimator _panelAnimator;
@@ -66,7 +68,7 @@ namespace PlayerBlock
             }
 
             var levelNumber = index + 1;
-            if (!LevelProgress.IsUnlocked(levelNumber))
+            if (!levels[index].IsEndlessMode && !LevelProgress.IsUnlocked(levelNumber))
             {
                 RefreshLevelButtons();
                 return;
@@ -86,6 +88,12 @@ namespace PlayerBlock
         {
             if (startGameButton != null)
             {
+                var directLoader = startGameButton.GetComponent<LoadSceneButton>();
+                if (directLoader != null)
+                {
+                    directLoader.enabled = false;
+                }
+
                 startGameButton.onClick.RemoveAllListeners();
                 startGameButton.onClick.AddListener(OpenPanel);
                 UiEffectsUtility.EnsureButtonEffects(startGameButton.transform);
@@ -140,7 +148,7 @@ namespace PlayerBlock
                     continue;
                 }
 
-                var unlocked = LevelProgress.IsUnlocked(i + 1);
+                var unlocked = entry.IsEndlessMode || LevelProgress.IsUnlocked(i + 1);
                 if (entry.Button != null)
                 {
                     entry.Button.interactable = unlocked;

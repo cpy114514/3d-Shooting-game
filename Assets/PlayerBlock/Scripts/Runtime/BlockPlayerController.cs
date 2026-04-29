@@ -153,6 +153,7 @@ namespace PlayerBlock
         private Vector3 _lastHitDirection = Vector3.back;
         private float _hitReactionTimer;
         private float _hitReactionDurationCurrent;
+        private float _endlessHealthRegenPerSecond;
 
         public float Health => _health;
         public float MaxHealth => maxHealth;
@@ -205,6 +206,49 @@ namespace PlayerBlock
         {
             _health = maxHealth;
             UpdateHealthBar();
+        }
+
+        public void AddMaxHealth(float amount, bool healAddedHealth)
+        {
+            if (amount <= 0f)
+            {
+                return;
+            }
+
+            maxHealth += amount;
+            if (healAddedHealth)
+            {
+                _health = Mathf.Min(maxHealth, _health + amount);
+            }
+
+            UpdateHealthBar();
+        }
+
+        public void AddShadowEnergyMax(float amount, bool fillAddedEnergy)
+        {
+            if (amount <= 0f)
+            {
+                return;
+            }
+
+            maxShadowEnergy += amount;
+            if (fillAddedEnergy)
+            {
+                _shadowEnergy = Mathf.Min(maxShadowEnergy, _shadowEnergy + amount);
+            }
+
+            UpdateEnergyBar();
+            UpdateSelectedShadowHud();
+        }
+
+        public void AddShadowEnergyRegen(float amount)
+        {
+            shadowEnergyRegenPerSecond = Mathf.Max(0f, shadowEnergyRegenPerSecond + amount);
+        }
+
+        public void AddEndlessHealthRegen(float amount)
+        {
+            _endlessHealthRegenPerSecond = Mathf.Max(0f, _endlessHealthRegenPerSecond + amount);
         }
 
         private struct BodyPartPose
@@ -335,6 +379,7 @@ namespace PlayerBlock
             var deltaTime = Time.deltaTime;
             _dashCooldownTimer = Mathf.Max(0f, _dashCooldownTimer - deltaTime);
             _shadowEnergy = Mathf.Min(maxShadowEnergy, _shadowEnergy + Mathf.Max(0f, shadowEnergyRegenPerSecond) * deltaTime);
+            RegenerateEndlessHealth(deltaTime);
             _punchCooldownTimer = Mathf.Max(0f, _punchCooldownTimer - deltaTime);
             _punchAnimationTimer = Mathf.Max(0f, _punchAnimationTimer - deltaTime);
             _shootAnimationTimer = Mathf.Max(0f, _shootAnimationTimer - deltaTime);
@@ -552,9 +597,8 @@ namespace PlayerBlock
         {
             SpendSelectedShadowEnergy();
             _shootAnimationTimer = shootAnimationDuration;
+            _pendingShadowShot = true;
             _pendingShadowShotKind = GetSelectedCloneKind();
-            _pendingShadowShot = false;
-            FireShadowBullet(_pendingShadowShotKind);
         }
 
         private void TryReleaseShadowBullet()
@@ -1080,6 +1124,17 @@ namespace PlayerBlock
             CombatHud.Instance.SetPlayerHealth(_health, maxHealth);
         }
 
+        private void RegenerateEndlessHealth(float deltaTime)
+        {
+            if (_endlessHealthRegenPerSecond <= 0f || _health <= 0f || _health >= maxHealth)
+            {
+                return;
+            }
+
+            _health = Mathf.Min(maxHealth, _health + _endlessHealthRegenPerSecond * deltaTime);
+            UpdateHealthBar();
+        }
+
         private void UpdateEnergyBar()
         {
             CombatHud.Instance.SetPlayerEnergy(_shadowEnergy, maxShadowEnergy);
@@ -1232,7 +1287,8 @@ namespace PlayerBlock
 
         private bool CanFireSelectedShadow()
         {
-            return _shadowEnergy >= GetSelectedShadowEnergyCost();
+            return _selectedCombatKind != CombatSelectionKind.Hands
+                && _shadowEnergy >= GetSelectedShadowEnergyCost();
         }
 
         private float GetSelectedShadowEnergyCost()

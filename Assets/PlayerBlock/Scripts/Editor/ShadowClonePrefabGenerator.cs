@@ -145,11 +145,14 @@ namespace PlayerBlock.Editor
             var serializedTarget = new SerializedObject(target);
             SetFloat(serializedTarget, "maxHealth", 1f);
             SetFloat(serializedTarget, "lifeTime", 18f);
-            SetFloat(serializedTarget, "rangedAttackRange", 18f);
+            SetFloat(serializedTarget, "rangedAttackRange", 24f);
             SetFloat(serializedTarget, "moveSpeed", 3.6f);
             SetFloat(serializedTarget, "shieldMoveSpeed", 2.05f);
             SetFloat(serializedTarget, "shieldHoldRange", 2.55f);
-            SetFloat(serializedTarget, "rangedPreferredDistance", 14f);
+            SetFloat(serializedTarget, "rangedPreferredDistance", 17f);
+            SetFloat(serializedTarget, "rangedAimHoldTime", 0.12f);
+            SetFloat(serializedTarget, "rangedMuzzleForwardOffset", 0.55f);
+            SetFloat(serializedTarget, "rangedMuzzleUpOffset", 0.08f);
             SetFloat(serializedTarget, "stopDistanceBuffer", 0.25f);
             SetFloat(serializedTarget, "moveAnimationSpeed", 8.5f);
             SetFloat(serializedTarget, "moveBobHeight", 0.08f);
@@ -167,9 +170,9 @@ namespace PlayerBlock.Editor
             SetFloat(serializedTarget, "meleeAttackWindupDuration", 0.34f);
             SetFloat(serializedTarget, "meleeAttackDamage", 2f);
             SetFloat(serializedTarget, "rangedAttackDamage", 1f);
-            SetFloat(serializedTarget, "rangedProjectileSpeed", 15f);
+            SetFloat(serializedTarget, "rangedProjectileSpeed", 24f);
             SetFloat(serializedTarget, "meleeAttackCooldown", 1.75f);
-            SetFloat(serializedTarget, "rangedAttackCooldown", 0.85f);
+            SetFloat(serializedTarget, "rangedAttackCooldown", 0.72f);
             SetFloat(serializedTarget, "rangedAttackAnimationDuration", rangedAttackAnimationDuration);
             SetFloat(serializedTarget, "crushHorizontalRadius", 1.15f);
             SetFloat(serializedTarget, "crushHeightTolerance", 0.25f);
