@@ -1,33 +1,34 @@
 # Shadow Shooter
 
-一款第三人称影子射击游戏。你可以自己打，也可以在无尽模式里一波一波撑下去，解锁升级，硬扛越来越强的敌人。
+A third-person shooter built around shadow clones, wave fights, and boss battles. You can play through the main stages or jump into endless mode, where each wave gets stronger and you choose upgrades between rounds.
 
-试玩页：
+Play here:
 [https://cpy111.itch.io/shadow-shooter](https://cpy111.itch.io/shadow-shooter)
 
-## 平台
+## Platforms
 
 - Web
 - Windows
 
-## 操作
+## Controls
 
-- `WASD`：移动
-- `鼠标`：转视角
-- `左键`：攻击
-- `右键`：瞄准
-- `Shift`：冲刺
-- `Space`：跳跃
-- `Esc`：暂停
-- `F11`：全屏
+- `WASD` - Move
+- `Mouse` - Look around
+- `Left Mouse` - Attack
+- `Right Mouse` - Aim
+- `Shift` - Dash
+- `Space` - Jump
+- `Esc` - Pause
+- `F11` - Toggle fullscreen
 
-## 说明
+## Features
 
-- 主菜单可以进设置、教程和选关
-- 设置支持画质、分辨率、音量、镜头距离等选项
-- 无尽模式会按波次刷新敌人，清完一波后可以三选一升级
-- 关卡、UI 和大部分参数都可以在场景里直接编辑
+- Main menu with settings, tutorial, and level select
+- Graphics, resolution, audio, camera distance, and other options in the settings menu
+- Endless mode with wave-based enemy spawns and 3-choice upgrades
+- Scene-based levels and UI that can be edited directly in Unity
 
-## 反馈
+## Notes
 
-如果你在试玩里遇到卡住、视角、按键或 UI 的问题，直接在 itch.io 留言就行。
+- This is a playable demo for browser and Windows
+- If you find a bug, a bad camera angle, or UI issues, leave a comment on itch.io
